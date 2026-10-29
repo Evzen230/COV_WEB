@@ -1,0 +1,136 @@
+.docs-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.docs-nav a.doc-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 19px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  text-decoration: none;
+  white-space: normal;
+}
+.docs-nav a.doc-choice.active {
+  border-color: var(--green);
+  background: var(--soft);
+}
+.docs-nav a.doc-choice > span {
+  display: block;
+  color: var(--green);
+  font-size: 22px;
+}
+.doc-choice b {
+  display: block;
+  font-size: 12px;
+}
+.doc-choice small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.documentation {
+  min-width: 0;
+}
+.doc-body {
+  padding: 28px 32px;
+  max-width: 1080px;
+  font-size: 13px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.doc-body h2 {
+  font-size: 24px;
+  margin: 0 0 18px;
+  letter-spacing: -0.5px;
+}
+.doc-body h3 {
+  font-size: 18px;
+  margin: 30px 0 12px;
+}
+.doc-body h4,
+.doc-body h5,
+.doc-body h6 {
+  font-size: 15px;
+  margin: 24px 0 10px;
+}
+.doc-body p {
+  margin: 12px 0;
+}
+.doc-body a {
+  color: var(--green);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.doc-body code {
+  font:
+    11px "IBM Plex Mono",
+    monospace;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 3px 5px;
+}
+.doc-code {
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.doc-code small {
+  display: block;
+  padding: 7px 15px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+.doc-code pre {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  line-height: 1.75;
+}
+.doc-code pre code {
+  padding: 0;
+  white-space: pre;
+}
+.doc-body table {
+  white-space: normal;
+}
+.doc-body td,
+.doc-body th {
+  padding: 11px 15px;
+  min-width: 140px;
+}
+.doc-body ul,
+.doc-body ol {
+  padding-left: 23px;
+}
+.doc-body li {
+  margin-bottom: 8px;
+}
+@media (max-width: 800px) {
+  aside > nav {
+    flex: none;
+    overflow-y: hidden;
+  }
+  .docs-nav {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .doc-body {
+    padding: 21px 18px;
+  }
+  .documentation .panelhead {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+}

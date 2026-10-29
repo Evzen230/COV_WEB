@@ -1,0 +1,9 @@
+[Unit]
+Description=Check queued COV installation and recover interrupted updates
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=15s
+
+[Install]
+WantedBy=timers.target

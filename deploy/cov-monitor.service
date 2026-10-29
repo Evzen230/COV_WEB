@@ -1,0 +1,21 @@
+[Unit]
+Description=COV Monitor
+After=network.target
+
+[Service]
+User=cov-monitor
+Group=cov-monitor
+WorkingDirectory=/opt/cov-monitor/current
+EnvironmentFile=/etc/cov-monitor/server.env
+ExecStart=/usr/bin/node /opt/cov-monitor/current/server.cjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/cov-monitor
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

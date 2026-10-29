@@ -1,0 +1,6 @@
+# Install Caddy separately; configure LAN DNS so this hostname resolves to the Pi.
+# Use the same hostname in OTA_BASE_URL and trust the Caddy local CA on the ESP32.
+cov.local {
+    tls internal
+    reverse_proxy 127.0.0.1:4173
+}

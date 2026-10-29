@@ -1,0 +1,9 @@
+[Unit]
+Description=COV verified update and recovery
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /usr/local/lib/cov-monitor/pi-update.cjs
+TimeoutStartSec=180
+UMask=0077

@@ -58,14 +58,19 @@ function createSecurity(
   config,
   now = Date.now,
   {
+    get = (key, fallback) => fallback,
+    put = () => {},
     save = () => {
       throw Error("Ukládání přístupu není nastaveno.");
     },
   } = {},
 ) {
-  const sessions = new Map(),
+  let sessionKey = "sessions:" + config.passwordHash;
+  const sessions = new Map(get(sessionKey, [])),
     attempts = new Map(),
     traffic = new Map();
+  const persist = () => put(sessionKey, [...sessions]);
+  const tokenHash = (token) => digest(token || "").toString("hex");
   function limit(map, key, max, windowMs) {
     let record = map.get(key);
     if (!record || record.until <= now()) {
@@ -86,9 +91,9 @@ function createSecurity(
       .map((x) => x.trim())
       .find((x) => x.startsWith("cov_session="))
       ?.slice(12);
-    const item = sessions.get(token);
+    const item = sessions.get(tokenHash(token));
     if (!item || item.expires <= now()) {
-      sessions.delete(token);
+      if (sessions.delete(tokenHash(token))) persist();
       return null;
     }
     return { token, ...item };
@@ -140,11 +145,14 @@ function createSecurity(
       attempts.delete(req.socket.remoteAddress);
       if (p === "/api/auth/password") {
         const token = randomBytes(32).toString("base64url");
+        put(sessionKey, []);
+        sessionKey = "sessions:" + config.passwordHash;
         sessions.clear();
-        sessions.set(token, { expires: now() + 12 * 3600000 });
+        sessions.set(tokenHash(token), { expires: now() + 30 * 86400000 });
+        persist();
         res.setHeader(
           "Set-Cookie",
-          `cov_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${req.socket.encrypted ? "; Secure" : ""}`,
+          `cov_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.socket.encrypted ? "; Secure" : ""}`,
         );
       }
       json(200, key ? { apiKey: key } : { changed: true });
@@ -172,17 +180,21 @@ function createSecurity(
       for (const [key, value] of sessions)
         if (value.expires <= now()) sessions.delete(key);
       if (sessions.size >= 1000) sessions.delete(sessions.keys().next().value);
-      sessions.set(token, { expires: now() + 12 * 3600000 });
+      sessions.set(tokenHash(token), { expires: now() + 30 * 86400000 });
+      persist();
       res.setHeader(
         "Set-Cookie",
-        `cov_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${req.socket.encrypted ? "; Secure" : ""}`,
+        `cov_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.socket.encrypted ? "; Secure" : ""}`,
       );
       json(200, { authenticated: true });
       return true;
     }
     if (p === "/api/auth/logout" && req.method === "POST") {
       const current = session(req);
-      if (current) sessions.delete(current.token);
+      if (current) {
+        sessions.delete(tokenHash(current.token));
+        persist();
+      }
       res.setHeader(
         "Set-Cookie",
         "cov_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
@@ -192,21 +204,28 @@ function createSecurity(
     }
     return false;
   }
-  function authorize(req, p) {
+  function authorize(req, p, authenticateDevice = () => null) {
     if (
       p === "/api/v1/telemetry" ||
       p === "/api/v1/device/status" ||
       p === "/api/v1/device/update" ||
-      p === "/api/v1/device/firmware"
+      p === "/api/v1/device/firmware" ||
+      p === "/api/v1/device/credentials"
     ) {
       const key =
         req.headers["x-api-key"] ||
         req.headers.authorization?.replace(/^Bearer /i, "") ||
         "";
+      const deviceId =
+        typeof key === "string" && key.length <= 256
+          ? authenticateDevice(key)
+          : null;
+      if (deviceId) req.deviceId = deviceId;
       if (
         typeof key !== "string" ||
         key.length > 256 ||
-        !equal(digest(key), Buffer.from(config.telemetryHash, "hex"))
+        (!deviceId &&
+          !equal(digest(key), Buffer.from(config.telemetryHash, "hex")))
       )
         throw Object.assign(Error("Neplatný klíč stanice."), { status: 401 });
       limit(traffic, req.socket.remoteAddress, 300, 60000);

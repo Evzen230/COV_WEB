@@ -35,6 +35,8 @@ const defaults = {
   stale: 15,
   mode: "live",
   tankVolume: 2400,
+  hiddenSensors: [],
+  levelCalibration: {},
   alarmDelaySeconds: 60,
   tempHysteresis: 0.5,
   levelHysteresis: 2,
@@ -58,9 +60,7 @@ function createApp({
   now = Date.now,
   security,
 } = {}) {
-  security ||= createSecurity(loadCredentials(), now, {
-    save: saveCredentials,
-  });
+  const accessConfig = security ? null : loadCredentials();
   if (dbPath !== ":memory:")
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
@@ -80,27 +80,66 @@ function createApp({
     db
       .prepare("INSERT OR REPLACE INTO kv VALUES(?,?)")
       .run(k, JSON.stringify(v));
-  const updates = createUpdates({ get, put });
+  security ||= createSecurity(accessConfig, now, {
+    save: saveCredentials,
+    get,
+    put,
+  });
   let settings = { ...defaults, ...get("settings", {}), mode: "live" };
+  settings.sensorSources = {
+    ...Object.fromEntries(
+      [...KEYS, "blower"].map((key) => [key, "cov-monitor-01"]),
+    ),
+    ...settings.sensorSources,
+  };
   delete settings.interval;
   put("settings", settings);
+  const fleet = require("./server/stations.cjs").createStations({
+    db,
+    dbPath,
+    get,
+    put,
+    now,
+    settings: () => settings,
+  });
+  const pairing = require("./server/pairing.cjs").createPairing({
+    get,
+    put,
+    now,
+    fleet,
+  });
+  const updateClients = new Map();
+  function updatesFor(id = "cov-monitor-01") {
+    if (!fleet.has(id)) fail("Neznámé device_id");
+    if (!updateClients.has(id)) {
+      const key = (k) =>
+        id === "cov-monitor-01" ? k : "device:" + id + ":" + k;
+      updateClients.set(
+        id,
+        createUpdates({
+          get: (k, d) => get(key(k), d),
+          put: (k, v) => put(key(k), v),
+          firmwareFilename:
+            id === "cov-monitor-01"
+              ? "firmware.bin"
+              : "firmware-" + id + ".bin",
+        }),
+      );
+    }
+    return updateClients.get(id);
+  }
   const pending = get("pendingAlarms", {});
   const event = (title) =>
     db
       .prepare("INSERT INTO events VALUES(?,?,?)")
       .run(randomUUID(), now(), title);
-  const latest = () =>
-    db
-      .prepare(
-        "SELECT * FROM samples WHERE source=? ORDER BY time DESC,id DESC LIMIT 1",
-      )
-      .get(settings.mode);
   const row = (r) =>
     r
       ? {
           time: r.time,
           received: r.received,
           source: r.source,
+          device_id: fleet.device(r.source),
           ...JSON.parse(r.value),
         }
       : null;
@@ -111,25 +150,31 @@ function createApp({
         .all()
         .map((row) => row.id),
     );
-    let last = latest(),
-      v = last ? JSON.parse(last.value) : {},
-      offline =
-        !last ||
-        now() - last.received > settings.stale * 60000 ||
-        now() - last.time > settings.stale * 60000,
-      conditions = [];
-    if (offline)
+    const snapshot = fleet.readings();
+    const last = snapshot.last,
+      v = snapshot.values,
+      offline = !snapshot.online;
+    let conditions = [];
+    for (const station of fleet.catalog()) {
+      if (station.online) continue;
       conditions.push([
-        "offline",
-        "Stanice neodpovídá",
-        last
-          ? `Chybí aktuální měření déle než ${settings.stale} minut.`
+        station.id === "cov-monitor-01" ? "offline" : "offline-" + station.id,
+        fleet.catalog().length === 1
+          ? "Stanice neodpovídá"
+          : station.name + ": stanice neodpovídá",
+        station.last_seen
+          ? "Chybí aktuální měření déle než " + settings.stale + " minut."
           : "Čeká se na první zprávu stanice.",
       ]);
+    }
     if (!offline) {
       for (const key of KEYS) {
         const rule = settings.sensorRules[key];
-        if (!rule?.enabled) continue;
+        if (
+          !rule?.enabled ||
+          !fleet.online(fleet.latest(fleet.sensorSource(key)))
+        )
+          continue;
         if (v[key] == null)
           conditions.push([
             key === "temperature" ? "sensor" : `sensor${key}`,
@@ -206,12 +251,17 @@ function createApp({
           "INSERT OR REPLACE INTO alarms VALUES(?,?,?,?,?,?,NULL)",
         ).run(id, title, body, 1, 0, now());
         event("Alarm: " + title);
-      } else db.prepare("UPDATE alarms SET body=? WHERE id=?").run(body, id);
+      } else
+        db.prepare("UPDATE alarms SET title=?,body=? WHERE id=?").run(
+          title,
+          body,
+          id,
+        );
     }
     return {
       online: !offline,
       last_seen: last?.received ?? null,
-      latest: row(last),
+      latest: last ? { ...row(last), ...v } : null,
     };
   }
   const insert = (source, time, values, id = randomUUID(), received = now()) =>
@@ -234,38 +284,17 @@ function createApp({
       .all(kind)
       .map((r) => JSON.parse(r.value));
   function state() {
-    const sensorStatus = Object.fromEntries(
-      KEYS.map((key) => {
-        const latestRow = latest(),
-          values = latestRow ? JSON.parse(latestRow.value) : {};
-        const lastValid = db
-          .prepare(
-            `SELECT time FROM samples WHERE source='live' AND json_extract(value,'$.${key}') IS NOT NULL ORDER BY time DESC,id DESC LIMIT 1`,
-          )
-          .get();
-        const stale =
-          !latestRow ||
-          now() - latestRow.time > settings.stale * 60000 ||
-          now() - latestRow.received > settings.stale * 60000;
-        return [
-          key,
-          {
-            status: stale ? "stale" : values[key] == null ? "missing" : "fresh",
-            measured_at: values[key] == null ? null : latestRow.time,
-            last_valid_at: lastValid?.time ?? null,
-          },
-        ];
-      }),
-    );
+    const sensorStatus = fleet.sensorStatus();
     return {
       settings,
+      stations: fleet.catalog(),
       sensorStatus,
       station: evaluate(),
       history: db
         .prepare(
-          "SELECT * FROM (SELECT * FROM samples WHERE source=? AND time>=? ORDER BY time DESC,id DESC LIMIT 20000) ORDER BY time,id",
+          "SELECT * FROM (SELECT * FROM samples WHERE (source='live' OR source LIKE 'station:%') AND time>=? ORDER BY time DESC,id DESC LIMIT 20000) ORDER BY time,id",
         )
-        .all(settings.mode, now() - 7 * 86400000)
+        .all(now() - 7 * 86400000)
         .map(row),
       labs: records("labs"),
       service: records("service"),
@@ -278,6 +307,7 @@ function createApp({
   const fail = (message, status = 400) => {
     throw Object.assign(new Error(message), { status });
   };
+  for (const station of fleet.catalog()) updatesFor(station.id);
   function text(v, key, max = 200, required = true) {
     if (typeof v !== "string" || v.length > max || (required && !v.trim()))
       fail("Neplatné pole " + key);
@@ -328,9 +358,70 @@ function createApp({
             mode: settings.mode,
           });
         if (await security.handle(req, res, p, body, json)) return;
-        security.authorize(req, p);
+        if (p === "/api/v1/pair" && m === "POST")
+          return json(
+            200,
+            pairing.claim(await body(req), req.socket.remoteAddress),
+          );
+        security.authorize(req, p, pairing.authenticate);
+        const pairMatch = p.match(
+          /^\/api\/stations\/([a-z0-9-]+)\/(pairing|revoke)$/,
+        );
+        if (pairMatch && m === "POST") {
+          if (pairMatch[2] === "pairing")
+            return json(201, pairing.issue(pairMatch[1]));
+          pairing.revoke(pairMatch[1]);
+          return json(200, { revoked: true });
+        }
+        if (p === "/api/stations" && m === "GET")
+          return json(200, fleet.catalog());
+        if (p === "/api/stations" && m === "POST")
+          return json(201, fleet.save(await body(req), fail));
+        const stationMatch = p.match(/^\/api\/stations\/([a-z0-9-]+)$/);
+        if (stationMatch && m === "DELETE") {
+          const id = stationMatch[1];
+          fleet.remove(id, fail);
+          pairing.revoke(id);
+          for (const key of Object.keys(settings.sensorSources))
+            if (settings.sensorSources[key] === id)
+              settings.sensorSources[key] = "cov-monitor-01";
+          if (settings.levelCalibration) delete settings.levelCalibration[id];
+          put("settings", settings);
+          updateClients.delete(id);
+          return json(200, { removed: true });
+        }
+        if (stationMatch && m === "PUT")
+          return json(200, fleet.save(await body(req), fail, stationMatch[1]));
+        const deviceId =
+          new URL(req.url, "http://localhost").searchParams.get("device_id") ||
+          "cov-monitor-01";
+        if (
+          req.deviceId &&
+          p.startsWith("/api/v1/device/") &&
+          deviceId !== req.deviceId
+        )
+          fail("Klíč patří jiné stanici", 403);
+        if (m === "POST" && p === "/api/v1/device/credentials") {
+          if (!req.deviceId) fail("Vyžaduje vlastní klíč stanice", 403);
+          return json(
+            200,
+            pairing.rotate(
+              req.headers["x-api-key"] ||
+                req.headers.authorization?.replace(/^Bearer /i, ""),
+              req.deviceId,
+            ),
+          );
+        }
+        const updates =
+          p.startsWith("/api/updates") || p.startsWith("/api/v1/device/")
+            ? updatesFor(deviceId)
+            : null;
         if (m === "GET" && p === "/api/v1/device/status") {
-          const station = evaluate();
+          const last = fleet.latest(deviceId);
+          const station = {
+            online: fleet.online(last),
+            last_seen: last?.received ?? null,
+          };
           return json(200, {
             mode: "live",
             online: station.online,
@@ -375,6 +466,8 @@ function createApp({
             alarms: "docs/ALARMS.md",
             security: "docs/SECURITY.md",
             updates: "docs/UPDATES.md",
+            pairing: "docs/PAIRING.md",
+            firmware: "docs/FIRMWARE.md",
           };
           const filename = documents[docMatch[1]];
           if (!filename) fail("Dokument nenalezen", 404);
@@ -400,6 +493,15 @@ function createApp({
           }
           return json(200, { id: docMatch[1], path: filename, content });
         }
+        if (p === "/api/preferences" && m === "GET")
+          return json(200, get("preferences", { dark: null }));
+        if (p === "/api/preferences" && m === "POST") {
+          const input = await body(req);
+          if (typeof input.dark !== "boolean")
+            return json(400, { error: "Neplatný režim vzhledu." });
+          put("preferences", { dark: input.dark });
+          return json(200, { dark: input.dark });
+        }
         if (m === "GET" && p === "/api/state") return json(200, state());
         if (m === "GET" && p === "/api/backup")
           return json(200, {
@@ -412,19 +514,27 @@ function createApp({
           });
         if (m === "POST" && p === "/api/v1/telemetry") {
           let b = await body(req);
-          if (b.device_id !== "cov-monitor-01") fail("Neznámé device_id");
+          if (req.deviceId && b.device_id !== req.deviceId)
+            fail("Klíč patří jiné stanici", 403);
+          if (!fleet.has(b.device_id)) fail("Neznámé device_id");
+          const source = fleet.source(b.device_id);
           if (b.firmware_version !== undefined) {
             if (
               typeof b.firmware_version !== "string" ||
               !/^\d+\.\d+\.\d+$/.test(b.firmware_version) ||
-              b.hardware !== "esp32-ds18b20-v1"
+              !["esp32-ds18b20-v1", "esp32-nano-v1"].includes(b.hardware)
             )
               fail("Neplatná verze stanice");
-            put("stationVersion", {
-              version: b.firmware_version,
-              target: b.hardware,
-              seen: new Date(now()).toISOString(),
-            });
+            put(
+              b.device_id === "cov-monitor-01"
+                ? "stationVersion"
+                : "device:" + b.device_id + ":stationVersion",
+              {
+                version: b.firmware_version,
+                target: b.hardware,
+                seen: new Date(now()).toISOString(),
+              },
+            );
           }
           text(b.sample_id, "sample_id", 100);
           if (
@@ -454,7 +564,36 @@ function createApp({
               fail("Neplatná veličina " + k);
             v[k] = x;
           }
-          if (!KEYS.some((k) => Object.hasOwn(b.measurements, k)))
+          if (Object.hasOwn(b.measurements, "distance_cm")) {
+            const distance = b.measurements.distance_cm;
+            if (
+              distance !== null &&
+              (typeof distance !== "number" ||
+                !Number.isFinite(distance) ||
+                distance < 21 ||
+                distance > 600)
+            )
+              fail("Neplatná vzdálenost distance_cm");
+            if (Object.hasOwn(b.measurements, "level"))
+              fail("Posílejte buď level, nebo distance_cm");
+            v.distance_cm = distance;
+            const calibration = settings.levelCalibration[b.device_id];
+            v.level =
+              distance !== null && calibration
+                ? Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      (100 * (calibration.emptyCm - distance)) /
+                        (calibration.emptyCm - calibration.fullCm),
+                    ),
+                  )
+                : null;
+          }
+          if (
+            !Object.hasOwn(b.measurements, "distance_cm") &&
+            !KEYS.some((k) => Object.hasOwn(b.measurements, k))
+          )
             fail("Zpráva neobsahuje známou veličinu");
           v.blower = b.blower ?? null;
           if (v.blower !== null && typeof v.blower !== "boolean")
@@ -469,11 +608,12 @@ function createApp({
           )
             fail("Neplatné rssi");
           let old = db
-            .prepare(
-              "SELECT * FROM samples WHERE source='live' AND sample_id=?",
-            )
-            .get(b.sample_id);
+            .prepare("SELECT * FROM samples WHERE source=? AND sample_id=?")
+            .get(source, b.sample_id);
           if (old) {
+            // A retry retains its original calibration, even after a settings change.
+            if (Object.hasOwn(v, "distance_cm"))
+              v.level = JSON.parse(old.value).level;
             if (
               old.value !== JSON.stringify(v) ||
               (b.timestamp !== undefined && old.time !== time)
@@ -481,7 +621,7 @@ function createApp({
               fail("sample_id už existuje s jinými daty", 409);
             return json(200, { accepted: true, duplicate: true, id: old.id });
           }
-          let result = insert("live", time, v, b.sample_id);
+          let result = insert(source, time, v, b.sample_id);
           evaluate();
           return json(201, {
             accepted: true,
@@ -494,6 +634,62 @@ function createApp({
           let b = await body(req),
             next = { ...settings };
           next.name = text(b.name, "name", 60);
+          if (b.sensorSources !== undefined) {
+            if (
+              !b.sensorSources ||
+              typeof b.sensorSources !== "object" ||
+              Array.isArray(b.sensorSources)
+            )
+              fail("Neplatné zdroje senzorů");
+            next.sensorSources = { ...settings.sensorSources };
+            for (const key of [...KEYS, "blower"]) {
+              const id = b.sensorSources[key] ?? settings.sensorSources[key];
+              if (!fleet.has(id)) fail("Neznámá zdrojová stanice: " + key);
+              next.sensorSources[key] = id;
+            }
+          }
+          if (b.levelCalibration !== undefined) {
+            if (
+              !b.levelCalibration ||
+              typeof b.levelCalibration !== "object" ||
+              Array.isArray(b.levelCalibration)
+            )
+              fail("Neplatná kalibrace hladiny");
+            next.levelCalibration = {};
+            for (const [id, calibration] of Object.entries(
+              b.levelCalibration,
+            )) {
+              if (
+                !fleet.has(id) ||
+                !calibration ||
+                typeof calibration !== "object"
+              )
+                fail("Neplatná stanice kalibrace");
+              const { emptyCm, fullCm } = calibration;
+              if (
+                ![emptyCm, fullCm].every(
+                  (x) =>
+                    typeof x === "number" &&
+                    Number.isFinite(x) &&
+                    x >= 21 &&
+                    x <= 600,
+                ) ||
+                emptyCm <= fullCm
+              )
+                fail(
+                  "Vzdálenost pro prázdnou nádrž musí být větší než pro plnou; rozsah 21–600 cm",
+                );
+              next.levelCalibration[id] = { emptyCm, fullCm };
+            }
+          }
+          if (b.hiddenSensors !== undefined) {
+            if (
+              !Array.isArray(b.hiddenSensors) ||
+              b.hiddenSensors.some((key) => !KEYS.includes(key))
+            )
+              fail("Neplatný seznam skrytých senzorů");
+            next.hiddenSensors = [...new Set(b.hiddenSensors)];
+          }
           if (b.sensorRules !== undefined) {
             if (
               !b.sensorRules ||
@@ -588,7 +784,7 @@ function createApp({
           put("settings", settings);
           return json(200, state());
         }
-        let a = p.match(/^\/api\/alarms\/([a-z]+)\/ack$/);
+        let a = p.match(/^\/api\/alarms\/([a-zA-Z0-9-]+)\/ack$/);
         if (m === "POST" && a) {
           let r = db
             .prepare("SELECT * FROM alarms WHERE id=? AND active=1")
@@ -677,10 +873,11 @@ function createApp({
   server.headersTimeout = 10000;
   return {
     server,
+    security,
     db,
     evaluate,
     close() {
-      updates.close();
+      for (const client of updateClients.values()) client.close();
       clearInterval(timer);
       server.close();
       db.close();

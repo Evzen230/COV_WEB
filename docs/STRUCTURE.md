@@ -34,6 +34,8 @@ Každá obrazovka aplikace má vlastní JavaScriptový modul ve složce `dist/js
 | test/                           | Automatické testy.                                                       |
 | scripts/check.cjs               | Kontrola syntaxe souborů projektu.                                       |
 
+Více ESP stanic jedné ČOV spravuje `server/stations.cjs`. Všechna měření a společné deníky jsou v jedné databázi; zdroj vzorku rozlišuje konkrétní ESP. `settings.sensorSources` určuje zdroj každé veličiny pro společný přehled a alarmy. Historie uchovává i souběžné veličiny stejného typu z více ESP. Starší vedlejší databáze se importují při startu.
+
 ## Změna jedné obrazovky
 
 Interaktivní graf má vlastní modul `dist/js/components/chart.js`. V objektu scales jsou základní rozsahy os pro jednotlivé veličiny (např. teplota 0–40 °C). Modul také obsluhuje kurzor, dotyk a klávesnici. Hodnoty mimo základní rozsah rozšíří osu a zobrazí vysvětlení; naměřené minimum a maximum zůstávají zvlášť pod grafem.

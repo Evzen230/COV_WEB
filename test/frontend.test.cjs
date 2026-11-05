@@ -37,7 +37,7 @@ test("Moduly stránek zachovají dashboard a formuláře bez původních přepis
   const overview = await import("../dist/js/pages/overview.js");
   const html = overview.overview();
   assert.match(html, /18,7/);
-  assert.match(html, /Režim stanice/);
+  assert.match(html, /Některá měření chybí/);
   assert.match(html, /Bez měření/);
   assert.match(html, /Neznámý stav/);
   assert.ok(!html.includes("Simulované měření"));

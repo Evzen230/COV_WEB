@@ -9,7 +9,7 @@ if (!key)
     "Nastavte proměnnou COV_API_KEY na klíč stanice z npm run setup.",
   );
 const message = {
-  device_id: "cov-monitor-01",
+  device_id: process.argv[4] || "cov-monitor-01",
   sample_id: randomUUID(),
   timestamp: new Date().toISOString(),
   measurements: { temperature },

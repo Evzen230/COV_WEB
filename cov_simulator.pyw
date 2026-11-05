@@ -8,13 +8,14 @@ Spuštění:  python cov_simulator.py
 import json
 import os
 import random
+import re
 import threading
 import tkinter as tk
 import uuid
 from datetime import datetime, timezone
 from tkinter import ttk
 from urllib import error, request
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, urlencode
 
 DEVICE_ID = "cov-monitor-01"
 DEFAULT_SERVER = "http://127.0.0.1:4173"
@@ -76,6 +77,10 @@ class App:
         ttk.Label(top, text="Interval (s)").grid(row=1, column=0, sticky="w", pady=2)
         self.interval = tk.StringVar(value="5")
         ttk.Spinbox(top, from_=1, to=3600, textvariable=self.interval, width=8).grid(row=1, column=1, sticky="w", pady=2)
+
+        ttk.Label(top, text="ID stanice").grid(row=1, column=2, sticky="w", pady=2)
+        self.device_id = tk.StringVar(value=DEVICE_ID)
+        ttk.Entry(top, textvariable=self.device_id, width=24).grid(row=1, column=3, sticky="ew", pady=2)
 
         # Hodnoty
         self.vars = {}
@@ -157,6 +162,12 @@ class App:
         self.paused.set(True)
         self.write("Výpadek stanice: odesílání je pozastaveno.")
 
+    def station_id(self):
+        value = self.device_id.get().strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,59}", value):
+            raise ValueError("Vyplňte platné ID stanice z Nastavení → Stanice.")
+        return value
+
     def build_payload(self):
         measurements = {}
         for key, _label, lo, hi, noise in FIELDS:
@@ -173,7 +184,7 @@ class App:
         blower = {"Neznámé": None, "Běží": True, "Neběží": False}[self.blower.get()]
         self.counter += 1
         return {
-            "device_id": DEVICE_ID,
+            "device_id": self.station_id(),
             "sample_id": f"sim-{self.boot}-{self.counter:06d}",
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "measurements": measurements,
@@ -197,6 +208,7 @@ class App:
     def check_server(self):
         try:
             origin = server_origin(self.server.get())
+            status_url = origin + "/api/v1/device/status?" + urlencode({"device_id": self.station_id()})
             key = self.api_key.get().strip()
             if not key:
                 raise ValueError("Vyplňte API klíč stanice.")
@@ -205,7 +217,7 @@ class App:
             return
         def check():
             try:
-                with request.urlopen(request.Request(origin + "/api/v1/device/status", headers={"X-API-Key": key}), timeout=10) as response:
+                with request.urlopen(request.Request(status_url, headers={"X-API-Key": key}), timeout=10) as response:
                     state = json.load(response)
                 mode = state["mode"]
                 seen = state.get("last_seen")

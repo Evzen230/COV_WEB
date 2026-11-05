@@ -6,20 +6,21 @@ Web obsahuje Nastavení → Aktualizace a zavíratelné upozornění na dostupno
 
 Použijte Raspberry Pi OS / Debian s systemd, doporučená je 64bitová instalace. Nejdřív nainstalujte Node.js **24.13 nebo novější z řady 24** tak, aby existoval `/usr/bin/node`. Runtime se tímto mechanismem neaktualizuje. Instalátor se spouští z kořene projektu a očekává nové umístění `/opt/cov-monitor/current`.
 
-Na vývojovém počítači vytvořte podpisový klíč Ed25519, například pomocí OpenSSL:
+Na počítači s Windows otevřete PowerShell ve složce projektu a vytvořte podpisové klíče příkazem (stačí Node.js, OpenSSL není potřeba):
 
-```sh
-openssl genpkey -algorithm ED25519 -out update-private.pem
-openssl pkey -in update-private.pem -pubout -out update-public.pem
+```powershell
+npm run updates:keys
 ```
 
-Soukromý klíč uchovávejte mimo projekt a mimo zákaznické zařízení. Na malinu patří jen veřejný klíč. Přeneste projekt a veřejný klíč a spusťte:
+Soubory vzniknou ve složce `data/update-signing/`, kterou Git ignoruje. Opakované spuštění zachová existující klíče. Celou tuto složku si zálohujte na bezpečné místo mimo projekt. Soukromý klíč `update-private.pem` zůstává u vás; nenahrávejte jej na GitHub ani zákaznické zařízení. Veřejný `update-public.pem` se později přenese na malinu. Příkaz můžete provést už teď na Windows, Raspberry Pi k tomu není potřeba.
+
+Až budete mít malinu připravenou, přeneste na ni projekt a veřejný klíč a spusťte na ní:
 
 ```sh
-sudo bash deploy/install-pi.sh /cesta/update-public.pem https://github.com/OWNER/REPO/releases/latest/download/manifest.json
+sudo bash deploy/install-pi.sh /cesta/update-public.pem https://github.com/Evzen230/COV_WEB/releases/latest/download/manifest.json
 ```
 
-Nahraďte OWNER/REPO skutečným veřejně dostupným repozitářem. Instalátor vytvoří uživatele `cov-monitor`, vyžádá heslo a vygeneruje klíč stanice. Soukromé GitHub repozitáře vyžadující token zatím podporované nejsou. Veřejný repozitář v tomto projektu zatím není určen.
+Zdrojem aktualizací je veřejný repozitář [Evzen230/COV_WEB](https://github.com/Evzen230/COV_WEB). Instalátor vytvoří uživatele `cov-monitor`, vyžádá heslo a vygeneruje klíč stanice. Soukromé GitHub repozitáře vyžadující token zatím podporované nejsou.
 
 Instalátor vytvoří:
 
@@ -58,7 +59,7 @@ Změňte verzi v `package.json`. Firmware má vlastní `FIRMWARE_VERSION` v `exa
 Sestavte firmware a z kořene projektu vytvořte balíčky:
 
 ```sh
-node scripts/release.cjs /bezpecne/update-private.pem /build/firmware.bin 0.3.0 https://github.com/OWNER/REPO/releases/download/v0.3.0 /vystup/v0.3.0
+node scripts/release.cjs /bezpecne/update-private.pem /build/firmware.bin 0.3.0 https://github.com/Evzen230/COV_WEB/releases/download/v0.3.0 /vystup/v0.3.0
 ```
 
 Popis změn lze zadat proměnnou `RELEASE_NOTES`. Vydání obsahuje `manifest.json`, `server.bundle`, `firmware.bin`; všechny tři soubory přiložte ke stejnému GitHub Release a označte jej jako nejnovější stabilní vydání. Manifest obsahuje base64 payload a podpis Ed25519 nad přesnými bajty payloadu. Balíček serveru je JSON s mapou relativních cest na base64 obsah. Data, hesla a klíče do balíčku nepatří. Limit balíčku je 32 MiB. Nový server musí zůstat kompatibilní s původním firmwarem, aby šly komponenty aktualizovat postupně.
@@ -71,7 +72,7 @@ Požadavky pro příklad:
 
 - Arduino ESP32 core řady 3.x, ArduinoJson řady 7, OneWire a DallasTemperature.
 - Tabulka flash s oddílem otadata a dvěma dostatečně velkými aplikačními oddíly OTA. Schéma bez OTA nelze použít.
-- Jednorázový provisioning přes USB pomocí `examples/esp32_provision/esp32_provision.ino`. V Serial Monitoru (115200 baud, newline) zadejte SSID, heslo, lokální HTTP URL telemetry a klíč stanice. Potom nahrajte monitorovací firmware bez mazání celé flash. Ten načte údaje z NVS.
+- Doporučené je [nastavení přes mobil](PAIRING.md), které nově obsahuje monitorovací firmware. Alternativou je jednorázový provisioning přes USB pomocí `examples/esp32_provision/esp32_provision.ino`. V Serial Monitoru (115200 baud, newline) zadejte SSID, heslo, lokální HTTP URL telemetry a klíč stanice. Potom nahrajte monitorovací firmware bez mazání celé flash. Ten načte údaje z NVS.
 - HTTPS reverse proxy před malinou, `OTA_BASE_URL` s odpovídajícím hostname a PEM certifikát vydávající CA v `OTA_CA_CERT` v `ota.h`. HTTPS je pro OTA povinné; ověřování certifikátů se nevypíná. Proxy musí předávat API cesty a hlavičku X-API-Key. NTP v setup zajistí čas pro TLS.
 
 Server stáhne a ověří podepsaný firmware po výslovném požadavku uživatele. Stanice jednou za minutu přes ověřené HTTPS získá nabídku, zkontroluje typ hardware, verzi a SHA-256 obrazu, zapíše do neaktivního oddílu a restartuje. Nabídka zůstává uložená i při restartu serveru. Stanice odmítne stejnou a nižší verzi. Pokus o instalaci si ukládá do NVS; po návratu z chybného firmware jej automaticky nezkouší znovu. Nový pokus vyžaduje nové spuštění aktualizace ve webu. Verze se hlásí s telemetrií. Přístupové údaje se načítají z NVS, které OTA aktualizace aplikace nemaže. Veřejný firmware neobsahuje hesla zákazníků. OTA_BASE_URL a důvěryhodná CA se nastavují v obrazu firmware; TLS certifikát musí odpovídat této adrese.

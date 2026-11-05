@@ -13,6 +13,10 @@ Web používá heslo pro jednoho domácího uživatele. ESP32 a Python odesíla�
 
 Příkaz setup použije vaše vlastní heslo a vytvoří náhodný klíč stanice a ukládá pouze jejich odvozené hashe a sůl do data/auth.json. Při opětovném spuštění existující údaje nepřepíše. Databáze měření zůstává zachovaná. Server bez platného souboru přístupových údajů odmítne nastartovat, aby nezůstal neúmyslně nechráněný. Existující starý proces se aktualizuje až restartem.
 
+## Vlastní klíče a párování přes mobil
+
+Nové stanice mají vlastní klíče vázané na ID, automatickou rotaci a možnost jednotlivého zrušení přístupu. Podrobnosti popisuje [párování přes mobil](PAIRING.md). Níže popsané vytváření společného API klíče a jeho ruční přepisování platí pro simulátor a starší ESP, nikoli nově spárované stanice. Společný klíč má nadále přístup ke všem ID; po migraci starých ESP jej vyměňte.
+
 ## API stanice
 
 Posílejte klíč v hlavičce `X-API-Key` nebo `Authorization: Bearer …`. Nedávejte ho do URL. Klíč dovoluje pouze příjem měření a kontrolu spojení:
@@ -31,7 +35,7 @@ Python klíč ukrývá v zadávacím poli a neukládá jej do souboru. Voliteln�
 
 ## Relace a omezení
 
-Přihlášení používá HttpOnly cookie se SameSite=Strict, nikoli heslo nebo klíč v localStorage. Relace platí 12 hodin a zanikne odhlášením nebo restartem serveru. Opakované chybné přihlášení je omezeno; po více než pěti pokusech z jedné adresy během 15 minut se vrátí chyba 429. Kontrola původu požadavku brání přístupu z cizích webových stránek. Příjem stanice dovoluje nejvýše 300 požadavků za minutu z jedné IP adresy. Klíče ani hesla se nevracejí v JSON záloze.
+Přihlášení používá HttpOnly cookie se SameSite=Strict, nikoli heslo nebo klíč v localStorage. Relace platí 30 dní od přihlášení a přežije restart serveru. Odhlášení zruší aktuální relaci a změna nebo reset hesla zneplatní staré relace. SQLite ukládá pouze hashe tokenů a expiraci. Světlý/tmavý režim se ukládá na server společně pro stanici; prohlížeč uchovává místní kopii. Opakované chybné přihlášení je omezeno; po více než pěti pokusech z jedné adresy během 15 minut se vrátí chyba 429. Kontrola původu požadavku brání přístupu z cizích webových stránek. Příjem stanice dovoluje nejvýše 300 požadavků za minutu z jedné IP adresy. Klíče ani hesla se nevracejí v JSON záloze.
 
 Připojení HTTP samo nešifruje provoz. Toto nastavení zajišťuje přístupová oprávnění, nikoli ochranu před odposlechem domácí sítě. Pro síť, které nedůvěřujete, použijte HTTPS; pro vzdálený přístup VPN nebo správně nastavenou HTTPS bránu. Nepřesměrovávejte nešifrovaný port přímo do internetu. Secure cookie se nastaví při přímém HTTPS spojení; při HTTPS reverzní proxy musí příslušnou úpravu cookie zajistit proxy, aplikace nedůvěřuje podvržitelným X-Forwarded hlavičkám.
 

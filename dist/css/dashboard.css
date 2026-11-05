@@ -741,3 +741,136 @@ textarea {
 .mobile-title {
   display: none;
 }
+.pill.danger,
+.testbadge[data-kind="alarm"] {
+  color: var(--danger);
+  background: var(--bg);
+}
+.station[data-kind="ok"] small,
+.testbadge[data-kind="ok"],
+.notice[data-kind="ok"] > b {
+  color: var(--green);
+}
+.testbadge[data-kind="ok"] {
+  background: var(--soft);
+  border-color: var(--line);
+}
+.station[data-kind="alarm"] {
+  border-color: var(--danger);
+}
+.station[data-kind="alarm"] .dot {
+  background: var(--danger);
+}
+.station[data-kind="offline"] .dot {
+  background: var(--muted);
+}
+.station[data-kind="warning"] .dot {
+  background: var(--orange);
+}
+.testbadge[data-kind="offline"],
+.testbadge[data-kind="warning"] {
+  color: var(--orange);
+}
+.level-trend {
+  color: var(--muted);
+  font-size: 10px;
+  margin: 6px 0 10px;
+}
+.chart .chart-limit line {
+  stroke: var(--danger);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.5;
+}
+.alarm-legend {
+  color: var(--danger);
+}
+.legend {
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+@media (max-width: 800px) {
+  aside > .station {
+    display: block;
+    margin: 12px 0 0;
+    padding: 10px 12px;
+  }
+  .station small {
+    display: block;
+  }
+  .testbadge {
+    max-width: 150px;
+    white-space: normal;
+    font-size: 9px;
+  }
+}
+
+.esp-stations {
+  margin: 22px 0;
+}
+.esp-stations > .panelhead {
+  padding-left: 0;
+  padding-right: 0;
+}
+.esp-station-body {
+  padding: 0 22px 22px;
+}
+.esp-station-body p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.esp-station dl {
+  margin: 14px 0 0;
+}
+.esp-station dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.esp-station dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.station-registry {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 24px;
+}
+.station-registry form {
+  border-bottom: 1px solid var(--line);
+}
+
+.esp-stations .detailcards {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+.esp-stations .detailcards .card {
+  padding: 0;
+}
+
+.technical-details {
+  margin: 20px 0;
+}
+.technical-details > summary,
+.chart-sources > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 12px 0;
+}
+.technical-details[open] > summary {
+  margin-bottom: 14px;
+}
+.chart-sources {
+  flex: 0 1 210px;
+}
+.chart-sources label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.chart-sources select {
+  width: 100%;
+}
+#settings-panel-advanced {
+  padding: 22px;
+}

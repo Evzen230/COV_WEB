@@ -1,4 +1,5 @@
 import { settings, connected } from "../core/state.js";
+import { stationStatus, esc } from "../core/utils.js";
 
 import {
   header,
@@ -23,10 +24,9 @@ export function overview() {
         `,
     ) +
     /* HTML */ `
-      <div class="notice">
-        <b>◈ &nbsp; ${"Režim stanice"}</b>
-        ${"ČOV → HTTP API → SQLite → webová aplikace."}
-        <span>${connected ? "SERVER PŘIPOJEN" : "SERVER NEDOSTUPNÝ"}</span>
+      <div class="notice" data-kind="${stationStatus().kind}">
+        <b>◈ &nbsp; ${esc(stationStatus().text)}</b>
+        ${esc(stationStatus().detail || "Aktuální přehled měření a provozu čistírny.")}
       </div>
     ` +
     metrics() +

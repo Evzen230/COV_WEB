@@ -51,8 +51,9 @@ export function accessSettings() {
           <h3>Nový API klíč stanice</h3>
           <p class="subtitle" style="line-height:1.8;margin:12px 0">
             Vytvoření okamžitě zneplatní původní klíč. Nový klíč uvidíte pouze
-            jednou a musíte ho přepsat v Python skriptu i ESP32. Heslo pro web
-            se nezmění.
+            jednou a musíte ho přepsat v Python skriptu a starších ESP32 se
+            společným klíčem. Stanice spárované přes mobil mají vlastní klíč a
+            zůstanou připojené. Heslo pro web se nezmění.
           </p>
           <label>
             Potvrdit současným heslem

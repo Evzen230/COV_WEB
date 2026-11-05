@@ -1,5 +1,5 @@
 import { updatesPanel } from "../components/updates.js";
-import { settings, sensors } from "../core/state.js";
+import { settings, sensors, serverState } from "../core/state.js";
 import { esc, healthy } from "../core/utils.js";
 import { header } from "../components/dashboard.js";
 import { accessSettings } from "../components/access-settings.js";
@@ -38,7 +38,7 @@ export function settingsPage() {
               />
             </label>
             <label>
-              Název stanice
+              Název ČOV
               <input
                 name="name"
                 required
@@ -157,9 +157,19 @@ export function settingsPage() {
                     min: null,
                     max: null,
                   };
-                  return `<div class="sensor-rule"><label class="sensor-toggle"><input type="checkbox" name="watch_${sensor.id}" ${rule.enabled ? "checked" : ""}>Hlásit výpadek: ${sensor.name}</label><p>${explanations[sensor.id]}</p>${!["temperature", "level"].includes(sensor.id) ? `<div class="sensor-rule-bounds"><label>Minimum (${sensor.unit})<input type="number" step="any" name="min_${sensor.id}" value="${rule.min ?? ""}" placeholder="Nenastaveno"></label><label>Návratové pásmo (${sensor.unit})<input type="number" step="any" min="0" name="hysteresis_${sensor.id}" value="${settings.rangeHysteresis?.[sensor.id] ?? 0}"></label><label>Maximum (${sensor.unit})<input type="number" step="any" name="max_${sensor.id}" value="${rule.max ?? ""}" placeholder="Nenastaveno"></label></div>` : ""}</div>`;
+                  return `<div class="sensor-rule"><label class="sensor-toggle"><input type="checkbox" name="show_${sensor.id}" ${settings.hiddenSensors?.includes(sensor.id) ? "" : "checked"}>Zobrazovat: ${sensor.name}</label><p>Skrytí neovlivní příjem dat ani nastavené alarmy.</p><label class="sensor-toggle"><input type="checkbox" name="watch_${sensor.id}" ${rule.enabled ? "checked" : ""}>Hlásit výpadek: ${sensor.name}</label><p>${explanations[sensor.id]}</p>${!["temperature", "level"].includes(sensor.id) ? `<div class="sensor-rule-bounds"><label>Minimum (${sensor.unit})<input type="number" step="any" name="min_${sensor.id}" value="${rule.min ?? ""}" placeholder="Nenastaveno"></label><label>Návratové pásmo (${sensor.unit})<input type="number" step="any" min="0" name="hysteresis_${sensor.id}" value="${settings.rangeHysteresis?.[sensor.id] ?? 0}"></label><label>Maximum (${sensor.unit})<input type="number" step="any" name="max_${sensor.id}" value="${rule.max ?? ""}" placeholder="Nenastaveno"></label></div>` : ""}</div>`;
                 })
                 .join("")}
+            </fieldset>
+            <fieldset class="sensor-monitoring full">
+              <legend>Kalibrace ultrazvukové hladiny</legend>
+              <p class="subtitle">
+                Vzdálenosti od čela čidla k hladině v centimetrech. Bez obou
+                hodnot je hladina neznámá. Změna platí pro nově přijaté vzorky;
+                historie zůstává zachovaná. Vymazáním obou polí kalibraci
+                vypnete. Dodržte odstup alespoň 21 cm, prakticky raději 25 cm.
+              </p>
+              ${(serverState?.stations || [{ id: "cov-monitor-01", name: "Hlavní ESP32" }]).map((station) => `<div class="sensor-rule"><h3>${esc(station.name)}</h3><p>Poslední přijatá vzdálenost: ${station.latest?.distance_cm ?? "—"} cm${station.online ? "" : " · stanice nedostupná"}</p><div class="sensor-rule-bounds"><label>Prázdná nádrž (cm)<input type="number" min="21" max="600" step="0.1" name="emptyCm_${esc(station.id)}" value="${settings.levelCalibration?.[station.id]?.emptyCm ?? ""}"></label><label>Plná nádrž (cm)<input type="number" min="21" max="600" step="0.1" name="fullCm_${esc(station.id)}" value="${settings.levelCalibration?.[station.id]?.fullCm ?? ""}"></label></div></div>`).join("")}
             </fieldset>
             <button class="btn primary">Uložit nastavení</button>
           </form>
@@ -186,6 +196,7 @@ ${esc(JSON.stringify({ device_id: "cov-monitor-01", sample_id: "boot-001-1", tim
       </div>
     ` +
     accessSettings() +
-    updatesPanel()
+    updatesPanel() +
+    `<div class="card" id="stations-panel"><h2>Pokročilé nastavení</h2><p class="subtitle">Technická konfigurace instalace a rozšíření měření.</p><details class="technical-details"><summary>Připojené stanice a zdroje měření</summary><p class="subtitle">Jedna ČOV může mít více ESP32, například pro vnitřní a venkovní měření. Každé ESP posílá vlastní senzory pod svým ID. Níže určíte, která stanice poskytuje jednotlivé hodnoty pro společný přehled. Rozbory a servisní deník jsou společné.</p><h3>Zdroje hlavního přehledu</h3><div class="formgrid">${[...sensors, { id: "blower", name: "Stav dmychadla" }].map((sensor) => `<label>${sensor.name}<select form="settingsform" name="source_${sensor.id}">${(serverState?.stations || [{ id: "cov-monitor-01", name: "Hlavní ESP32" }]).map((station) => `<option value="${esc(station.id)}" ${(settings.sensorSources?.[sensor.id] || "cov-monitor-01") === station.id ? "selected" : ""}>${esc(station.name)} (${esc(station.id)})</option>`).join("")}</select></label>`).join("")}<button form="settingsform" class="btn primary">Uložit zdroje měření</button></div><div class="station-registry">${(serverState?.stations || []).map((station) => `<form class="formgrid" data-station-rename><input type="hidden" name="stationId" value="${esc(station.id)}"><label>Název ESP stanice<input name="name" value="${esc(station.name)}" required maxlength="60"></label><p><code>${esc(station.id)}</code> · ${station.online ? "Online" : "Čeká na data / nedostupná"}</p><button class="btn">Uložit název</button><button type="button" class="btn" data-pair-station="${esc(station.id)}">Spárovat přes mobil</button><button type="button" class="btn" data-revoke-station="${esc(station.id)}">Zrušit přístup stanice</button>${station.id !== "cov-monitor-01" ? `<button type="button" class="btn danger" data-remove-station="${esc(station.id)}">Odebrat stanici</button>` : ""}</form>`).join("")}</div><h3>Připojit další ESP32</h3><form id="stationform" class="formgrid"><label>Název stanice<input name="name" required maxlength="60" placeholder="Venkovní měření"></label><label>ID stanice<input name="stationId" required maxlength="60" pattern="[a-z0-9][a-z0-9-]{0,59}" placeholder="cov-monitor-02"><small>Malá písmena, číslice a pomlčky. ID musí být jedinečné.</small></label><button class="btn primary">Přidat stanici</button></form></details></div>`
   );
 }

@@ -9,7 +9,7 @@ if (
   !base.startsWith("https://")
 )
   throw Error(
-    "Použití: node scripts/release.cjs private.pem firmware.bin 0.3.0 https://github.com/OWNER/REPO/releases/download/v0.3.0 output",
+    "Použití: node scripts/release.cjs private.pem firmware.bin 0.3.0 https://github.com/Evzen230/COV_WEB/releases/download/v0.3.0 output",
   );
 const files = {};
 function collect(name) {
@@ -44,7 +44,7 @@ const payload = Buffer.from(
     server: asset(server, "server.bundle", require("../package.json").version),
     firmware: {
       ...asset(fw, "firmware.bin", firmwareVersion),
-      target: "esp32-ds18b20-v1",
+      target: process.env.FIRMWARE_TARGET || "esp32-nano-v1",
     },
   }),
 );

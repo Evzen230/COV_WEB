@@ -15,6 +15,10 @@ Otevřete http://127.0.0.1:4173. Pro přístup stanice a telefonu v domácí sí
 
 Příkaz setup se při prvním spuštění zeptá na vaše vlastní heslo pro web a vygeneruje API klíč pro stanici. Klíč si uložte; ukáže se jen jednou. Heslo a klíč lze později změnit po přihlášení v Nastavení → Přístup a API klíč. Aktualizace na Raspberry Pi popisuje [návod k aktualizacím](docs/UPDATES.md). Při ruční výměně souborů zastavte server, zachovejte data a přístupové údaje a restartujte; setup se znovu nespouští. V Pythonu doplňte klíč do nového pole API klíč stanice. Podrobnosti: [zabezpečení](docs/SECURITY.md).
 
+## Připojení stanice přes mobil
+
+Nový firmware umožňuje nastavit domácí Wi-Fi, vybrat server a spárovat ESP32 jednorázovým kódem z webu. Každá stanice získá vlastní klíč s automatickou rotací. Postup, servisní tlačítko a vyhledávání serveru na Raspberry Pi popisuje [párování stanic](docs/PAIRING.md).
+
 ## Aktualizace na Raspberry Pi
 
 Nastavení → Aktualizace zobrazuje verze serveru a ESP32, umožňuje kontrolu vydání a spuštění instalace. Nová verze se oznamuje zavíratelným upozorněním. Podepsaná vydání z GitHubu, instalaci systemd, zálohy a obnovu popisuje [návod k aktualizacím](docs/UPDATES.md). Zdroj vydání a veřejný klíč je nutné nastavit při instalaci; ESP32 potřebuje OTA firmware, NVS provisioning a ověřené HTTPS.
@@ -33,7 +37,7 @@ Nastavení sledovaných sond, provozních mezí a ověření poruch popisuje [n�
 
 ESP32 odesílá `POST /api/v1/telemetry` s JSON zprávou. Stačí jedno zapojené čidlo. Požadavek potřebuje hlavičku X-API-Key nebo Authorization: Bearer s klíčem stanice. Jedinečné sample_id zabraňuje duplicitám při opakování zpráv. Chybné nebo chybějící měření se ukládá jako null. Backend vyhodnocuje dostupnost a alarmy i při zavřeném webu. Notifikace mimo aplikaci zatím nejsou součástí.
 
-Podrobný formát, síťové spuštění, zálohování a plán instalace: [docs/API.md](docs/API.md). Testovací odeslání: `node examples/send-sample.mjs`. Výchozí Arduino firmware pro ESP32 a DS18B20: `examples/esp32_http/esp32_http.ino` (hardware neověřen).
+Podrobný formát, síťové spuštění, zálohování a plán instalace: [docs/API.md](docs/API.md). Testovací odeslání: `node examples/send-sample.mjs`. Firmware pro Nano R3 (DS18B20 + JSN-SR04T V3) a ESP32 bránu včetně pětižilového zapojení a kalibrace hladiny: [docs/FIRMWARE.md](docs/FIRMWARE.md). Párování přes mobil zůstává zachované.
 
 ## Orientace ve zdrojovém kódu
 

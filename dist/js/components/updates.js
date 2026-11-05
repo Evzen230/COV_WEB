@@ -1,15 +1,27 @@
+import { serverState } from "../core/state.js";
 import { api } from "../core/api.js";
 import { esc, toast } from "../core/utils.js";
 let dismissed = "";
 let lastCheck = 0;
+let updateStation = "cov-monitor-01";
 export function updatesPanel() {
-  return '<div class="card" id="updates-panel"><div class="panelhead"><h2>Aktualizace</h2></div><div style="padding:22px" id="updates-content">Načítání verzí…</div></div>';
+  return `<div class="card" id="updates-panel"><div class="panelhead"><h2>Aktualizace</h2><label>ESP stanice<select id="update-station">${(serverState?.stations || [{ id: "cov-monitor-01", name: "Hlavní ESP32" }]).map((station) => `<option value="${esc(station.id)}" ${station.id === updateStation ? "selected" : ""}>${esc(station.name)}</option>`).join("")}</select></label></div><div style="padding:22px" id="updates-content">Načítání verzí…</div></div>`;
 }
 export async function refreshUpdates(force = false) {
+  const picker = document.querySelector("#update-station");
+  if (picker)
+    picker.onchange = () => {
+      updateStation = picker.value;
+      refreshUpdates(true);
+    };
   if (!force && Date.now() - lastCheck < 60000) return;
   lastCheck = Date.now();
   try {
-    const s = await api("/api/updates");
+    const requestedStation = updateStation;
+    const s = await api(
+      "/api/updates?device_id=" + encodeURIComponent(updateStation),
+    );
+    if (requestedStation !== updateStation) return;
     const signature = JSON.stringify([
       s.release?.server.version,
       s.release?.firmware.version,
@@ -44,7 +56,9 @@ export async function refreshUpdates(force = false) {
         try {
           const kind = button.dataset.update;
           await api(
-            kind === "check" ? "/api/updates/check" : "/api/updates/install",
+            (kind === "check" ? "/api/updates/check" : "/api/updates/install") +
+              "?device_id=" +
+              encodeURIComponent(updateStation),
             "POST",
             kind === "check" ? undefined : { kind },
           );

@@ -1,15 +1,16 @@
 .docs-nav {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 .docs-nav a.doc-choice {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 19px;
+  min-height: 44px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
@@ -21,21 +22,23 @@
   border-color: var(--green);
   background: var(--soft);
 }
+.docs-nav a.doc-choice:hover {
+  border-color: var(--green);
+}
+.docs-nav a.doc-choice:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
 .docs-nav a.doc-choice > span {
   display: block;
   color: var(--green);
-  font-size: 22px;
+  font-size: 18px;
+  line-height: 1;
 }
 .doc-choice b {
   display: block;
   font-size: 12px;
-}
-.doc-choice small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.6;
-  margin-top: 6px;
+  line-height: 1.4;
 }
 .documentation {
   min-width: 0;
@@ -123,7 +126,6 @@
     overflow-y: hidden;
   }
   .docs-nav {
-    grid-template-columns: 1fr;
     overflow: visible;
   }
   .doc-body {

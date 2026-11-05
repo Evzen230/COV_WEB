@@ -11,6 +11,7 @@ export function mountSettingsTabs() {
     ["connection", "Připojení"],
     ["access", "Přístup a API"],
     ["updates", "Aktualizace"],
+    ["advanced", "Pokročilé"],
   ];
   const nav = document.createElement("div");
   nav.className = "settings-tabs";
@@ -37,6 +38,7 @@ export function mountSettingsTabs() {
       form.querySelector('[data-settings-panel="alarms"]').append(field);
   }
   for (const [id, element] of [
+    ["advanced", document.querySelector("#stations-panel")],
     ["connection", connection],
     ["access", access],
     ["updates", document.querySelector("#updates-panel")],
@@ -87,6 +89,7 @@ export function mountSettingsTabs() {
     buttons[next].click();
     buttons[next].focus();
   });
-  const id = location.hash.split("/")[1];
+  const requested = location.hash.split("/")[1];
+  const id = requested === "stations" ? "advanced" : requested;
   choose(names.some((item) => item[0] === id) ? id : "general");
 }

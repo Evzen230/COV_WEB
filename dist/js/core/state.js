@@ -15,6 +15,7 @@ export let history = [],
   ack = {};
 export let range = "24 h",
   metric = "temperature";
+export let chartStation = "";
 export let serverState = null,
   connected = false;
 export const sensors = [
@@ -79,7 +80,13 @@ export const sensors = [
     max: 220,
   },
 ];
+export function visibleSensors() {
+  return sensors.filter(
+    (sensor) => !settings.hiddenSensors?.includes(sensor.id),
+  );
+}
 export function setView(next) {
+  if (next.chartStation !== undefined) chartStation = next.chartStation;
   if (next.range) range = next.range;
   if (next.metric) metric = next.metric;
 }
@@ -90,6 +97,8 @@ export function applyState(s) {
   serverState = s;
   connected = true;
   settings = s.settings;
+  if (!visibleSensors().some((sensor) => sensor.id === metric))
+    metric = visibleSensors()[0]?.id ?? "temperature";
   history = s.history;
   labs = s.labs;
   service = s.service;

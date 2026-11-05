@@ -10,6 +10,7 @@ export function showLogin(onLogin) {
   const main = document.querySelector("#main");
   main.innerHTML = `<section class="card login-card"><h1>ČOV Monitor</h1><p class="subtitle">Přihlášení k domácímu monitoringu</p><form id="loginform"><label>Heslo<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label><button class="btn primary">Přihlásit se</button><p class="login-error" role="alert"></p></form><p class="subtitle">Přístupové údaje vytvoříte v terminálu příkazem <code>npm run setup</code>.</p></section>`;
   mountPasswordControls(main);
+  document.documentElement.classList.remove("booting");
   main.querySelector("form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.target.querySelector('button:not([type="button"])');

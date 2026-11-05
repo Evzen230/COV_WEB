@@ -45,7 +45,7 @@ function decodeManifest(envelope, key) {
       throw Error("Neplatný manifest.");
   }
   if (
-    manifest.firmware.target !== "esp32-ds18b20-v1" ||
+    !["esp32-ds18b20-v1", "esp32-nano-v1"].includes(manifest.firmware.target) ||
     manifest.firmware.protocol !== 1 ||
     manifest.server.protocol !== 1
   )
@@ -60,6 +60,7 @@ function createUpdates({
   publicKey = process.env.UPDATE_PUBLIC_KEY &&
     fs.readFileSync(process.env.UPDATE_PUBLIC_KEY, "utf8"),
   fetchBytes = download,
+  firmwareFilename = "firmware.bin",
 } = {}) {
   let checking, staging;
   const enabled = Boolean(directory && manifestUrl && publicKey);
@@ -149,7 +150,7 @@ function createUpdates({
       const bytes = await fetchBytes(item.url);
       if (createHash("sha256").update(bytes).digest("hex") !== item.sha256)
         throw Error("Kontrolní součet nesouhlasí.");
-      const filename = kind === "server" ? "server.bundle" : "firmware.bin";
+      const filename = kind === "server" ? "server.bundle" : firmwareFilename;
       fs.writeFileSync(path.join(directory, filename + ".tmp"), bytes, {
         mode: 0o600,
       });
@@ -191,7 +192,7 @@ function createUpdates({
     check,
     stage,
     firmware: () => get("firmwareOffer", null),
-    firmwarePath: () => path.join(directory, "firmware.bin"),
+    firmwarePath: () => path.join(directory, firmwareFilename),
     close() {
       clearInterval(timer);
       clearTimeout(initial);

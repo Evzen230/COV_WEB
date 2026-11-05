@@ -16,6 +16,7 @@
 }
 html {
   scrollbar-gutter: stable;
+  background: var(--bg);
 }
 body {
   margin: 0;
@@ -26,6 +27,7 @@ body {
     Segoe UI,
     sans-serif;
 }
+:root.dark,
 body.dark {
   --danger: #ff9b95;
   --bg: #141d20;
@@ -35,6 +37,19 @@ body.dark {
   --line: #304045;
   --soft: #213d35;
   --green: #66c6aa;
+}
+.booting body > aside,
+.booting body > .workspace {
+  visibility: hidden;
+}
+.booting body::before {
+  content: "Načítání monitoringu…";
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--bg);
 }
 .password-control {
   display: block;
@@ -441,4 +456,15 @@ h3 {
   font:
     10px "IBM Plex Mono",
     monospace;
+}
+
+.station-add {
+  display: block;
+  margin: 0 20px 12px;
+  font-size: 13px;
+  color: var(--accent, #167561);
+}
+#stations-panel,
+#settings-panel-stations {
+  padding: 22px;
 }

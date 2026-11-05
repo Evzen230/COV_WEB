@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="cs">
+<html lang="cs" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#167561" />
     <title>ČOV Monitor · Provozní přehled</title>
+    <script src="/js/theme-init.js"></script>
     <link rel="stylesheet" href="/css/base.css" />
     <link rel="stylesheet" href="/css/dashboard.css" />
     <link rel="stylesheet" href="/css/responsive.css" />
@@ -24,14 +25,14 @@
       <div class="station">
         <span class="dot"></span>
         Domovní ČOV
-        <small>BC 4 OPTIMA · Stanice 01</small>
+        <small>Načítání stavu…</small>
       </div>
       <div class="navlabel">MOJE ČOV</div>
       <nav id="nav" aria-label="Hlavní navigace"></nav>
       <div class="sidebottom">
         <span class="demoicon">◈</span>
         <b>Domácí monitoring</b>
-        <p>Data přijímá domácí server.</p>
+        <p>Přehled o vaší čistírně.</p>
         <button id="theme" class="theme">◐ &nbsp; Tmavý režim</button>
       </div>
     </aside>
@@ -43,7 +44,7 @@
           <span id="crumb">Přehled</span>
         </div>
         <div class="headerRight">
-          <span class="testbadge">STANICE · HTTP</span>
+          <span class="testbadge" role="status">Načítání stavu…</span>
           <span id="clock"></span>
           <button id="logout" class="btn" hidden>Odhlásit</button>
         </div>
@@ -65,5 +66,6 @@
       hidden
     ></section>
     <script type="module" src="/js/app.js"></script>
+    <noscript>Pro zobrazení monitoringu povolte JavaScript.</noscript>
   </body>
 </html>

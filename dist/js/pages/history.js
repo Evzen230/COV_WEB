@@ -1,5 +1,5 @@
-import { sensors } from "../core/state.js";
-import { fmt, stamp, filtered } from "../core/utils.js";
+import { visibleSensors, serverState, chartStation } from "../core/state.js";
+import { fmt, stamp, filtered, esc } from "../core/utils.js";
 import { header, exportButton, chart } from "../components/dashboard.js";
 
 export function historyPage() {
@@ -21,7 +21,8 @@ export function historyPage() {
             <thead>
               <tr>
                 <th>ČAS</th>
-                ${sensors
+                ${chartStation ? "<th>MÍSTO MĚŘENÍ</th>" : ""}
+                ${visibleSensors()
                   .map(
                     (s) => /* HTML */ `
                       <th>${s.name} (${s.unit})</th>
@@ -38,7 +39,8 @@ export function historyPage() {
                   (r) => /* HTML */ `
                     <tr>
                       <td>${stamp(r.time)}</td>
-                      ${sensors
+                      ${chartStation ? `<td>${esc(serverState?.stations?.find((station) => station.id === r.device_id)?.name || r.device_id || "Měření")}</td>` : ""}
+                      ${visibleSensors()
                         .map(
                           (s) => /* HTML */ `
                             <td class="mono">${fmt(r[s.id])}</td>

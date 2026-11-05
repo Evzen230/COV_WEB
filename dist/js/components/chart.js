@@ -1,5 +1,15 @@
-import { history, metric, range, sensors, settings } from "../core/state.js";
-import { esc, filtered, fmt } from "../core/utils.js";
+import {
+  history,
+  chartStation,
+  serverState,
+  metric,
+  range,
+  sensors,
+  settings,
+  visibleSensors,
+  setView,
+} from "../core/state.js";
+import { esc, filtered, fmt, alarmLimits } from "../core/utils.js";
 
 // Stable scales make small changes comparable across periods and refreshes.
 export const scales = {
@@ -15,7 +25,10 @@ export function chartScale(id, rows) {
   let min = base.min,
     max = base.max;
   // Never hide values beyond the normal display range.
-  for (const row of rows) {
+  for (const row of [
+    ...rows,
+    ...alarmLimits(id).map((limit) => ({ [id]: limit.value })),
+  ]) {
     const value = row[id];
     if (value == null) continue;
     if (value < min) min = Math.floor(value / base.step) * base.step;
@@ -42,21 +55,67 @@ const x = (time, rows) =>
 const y = (value, scale) =>
   15 + ((scale.max - value) / (scale.max - scale.min)) * 155;
 
+export function chartSegments(
+  rows,
+  id,
+  maxGap = (settings.stale ?? 15) * 60000,
+) {
+  const segments = [];
+  let segment = null;
+  for (const row of rows) {
+    if (!Number.isFinite(row[id])) {
+      segment = null;
+      continue;
+    }
+    if (!segment || row.time - segment.at(-1).time > maxGap) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push(row);
+  }
+  return segments;
+}
+
+export function sampleAtTime(
+  rows,
+  time,
+  maxGap = (settings.stale ?? 15) * 60000,
+) {
+  const index = nearestSample(rows, time);
+  if (index < 0) return -1;
+  const left = rows[index].time <= time ? index : index - 1;
+  const right = left + 1;
+  if (
+    left >= 0 &&
+    right < rows.length &&
+    time > rows[left].time &&
+    time < rows[right].time &&
+    rows[right].time - rows[left].time > maxGap
+  )
+    return -1;
+  return index;
+}
+
 export function chart() {
+  const visible = visibleSensors();
+  if (!visible.length)
+    return '<div class="card"><h2>Historie měření</h2><p>Všechny senzory jsou skryté. Zobrazení můžete změnit v Nastavení.</p></div>';
+  if (!visible.some((sensor) => sensor.id === metric))
+    setView({ metric: visible[0].id });
   const sensor = sensors.find((sensor) => sensor.id === metric);
   const rows = filtered(),
     valid = rows.filter((row) => row[metric] != null);
   const scale = chartScale(metric, rows);
-  let drawing = false,
-    path = "";
-  for (const row of rows) {
-    if (row[metric] == null) {
-      drawing = false;
-      continue;
-    }
-    path += `${drawing ? "L" : "M"}${x(row.time, rows).toFixed(2)},${y(row[metric], scale).toFixed(2)} `;
-    drawing = true;
-  }
+  const segments = chartSegments(rows, metric);
+  const paths = segments.map((segment) =>
+    segment
+      .map(
+        (row, index) =>
+          `${index ? "L" : "M"}${x(row.time, rows).toFixed(2)},${y(row[metric], scale).toFixed(2)}`,
+      )
+      .join(" "),
+  );
+  const path = paths.join(" ");
   const labels = Array.from({ length: 5 }, (_, index) => {
     const tick = scale.max - (index * (scale.max - scale.min)) / 4;
     return `<line x1="58" y1="${15 + index * 38.75}" x2="608" y2="${15 + index * 38.75}"/><text x="48" y="${18 + index * 38.75}" text-anchor="end">${fmt(tick)}</text>`;
@@ -77,9 +136,18 @@ export function chart() {
         <label class="chart-metric-picker">
           Zobrazit v grafu
           <select id="metric">
-            ${sensors.map((item) => `<option value="${item.id}" ${metric === item.id ? "selected" : ""}>${item.name} (${item.unit})</option>`).join("")}
+            ${visible.map((item) => `<option value="${item.id}" ${metric === item.id ? "selected" : ""}>${item.name} (${item.unit})</option>`).join("")}
           </select>
         </label>
+        ${
+          (serverState?.stations?.length || 0) > 1
+            ? `<details class="chart-sources" ${chartStation ? "open" : ""}><summary>Další měření</summary><label>Zdroj měření          <select id="chart-station" aria-label="Zdroj měření v grafu">
+            <option value="">Zdroj hlavního přehledu</option>
+            ${(serverState?.stations || []).map((station) => `<option value="${esc(station.id)}" ${chartStation === station.id ? "selected" : ""}>${esc(station.name)}</option>`).join("")}
+          </select>
+</label></details>`
+            : ""
+        }
         <div class="segments">
           ${["1 h", "24 h", "7 dní"].map((period) => `<button data-range="${period}" class="${range === period ? "active" : ""}">${period}</button>`).join("")}
         </div>
@@ -90,7 +158,16 @@ export function chart() {
             <i></i>
             ${sensor.name}
           </span>
-          <span>${"Data ze stanice"}</span>
+          <span class="alarm-legend">
+            ${
+              alarmLimits(metric)
+                .map(
+                  (limit) =>
+                    `${limit.label}: ${fmt(limit.value)} ${sensor.unit}`,
+                )
+                .join(" · ") || "Alarmové meze nejsou nastavené"
+            }
+          </span>
         </div>
         <div class="chart-scale">
           Rozsah osy:
@@ -112,7 +189,13 @@ export function chart() {
               </linearGradient>
             </defs>
             ${labels}
-            ${rows.length > 1 && valid.length === rows.length ? `<path d="${path}L608,170 L58,170Z" fill="url(#chart-fill)"/>` : ""}
+            ${alarmLimits(metric)
+              .map(
+                (limit) =>
+                  `<g class="chart-limit"><line x1="58" x2="608" y1="${y(limit.value, scale)}" y2="${y(limit.value, scale)}"/><title>${limit.label}: ${fmt(limit.value)} ${sensor.unit}</title></g>`,
+              )
+              .join("")}
+            ${segments.map((segment, index) => (segment.length > 1 ? `<path d="${paths[index]} L${x(segment.at(-1).time, rows)},170 L${x(segment[0].time, rows)},170Z" fill="url(#chart-fill)"/>` : "")).join("")}
             <path
               d="${path}"
               stroke="var(--green)"
@@ -120,7 +203,13 @@ export function chart() {
               stroke-width="2.3"
               stroke-linecap="round"
             />
-            ${valid.length === 1 ? `<circle cx="${x(valid[0].time, rows)}" cy="${y(valid[0][metric], scale)}" r="4" fill="var(--green)"/>` : ""}
+            ${segments
+              .filter((segment) => segment.length === 1)
+              .map(
+                ([row]) =>
+                  `<circle cx="${x(row.time, rows)}" cy="${y(row[metric], scale)}" r="4" fill="var(--green)"/>`,
+              )
+              .join("")}
             ${ticks}
             ${!rows.length ? '<text x="330" y="95" text-anchor="middle">Pro toto období zatím nejsou data</text>' : ""}
             <g class="chart-cursor" visibility="hidden" aria-hidden="true">
@@ -131,8 +220,11 @@ export function chart() {
           <div class="chart-tooltip" role="status" hidden></div>
         </div>
         <p class="chart-hint">
-          Najeďte na graf pro hodnotu a čas. Na telefonu klepněte; klávesnicí
-          použijte šipky.
+          Mezery označují chybějící měření nebo výpadek delší než
+          ${settings.stale ?? 15} minut. Přerušované červené čáry označují
+          alarmové meze. Alarm se vyhodnotí podle nastavené prodlevy a
+          návratového pásma. Najeďte na graf pro hodnotu a čas. Na telefonu
+          klepněte; klávesnicí použijte šipky.
         </p>
       </div>
       <div class="chartfoot">
@@ -158,6 +250,7 @@ export function chart() {
 }
 
 let selection = null;
+let chartEvents = null;
 function showSample(plot, index) {
   const rows = filtered(),
     row = rows[index];
@@ -211,6 +304,9 @@ function hideSample(plot) {
   selection = null;
 }
 export function mountChart() {
+  chartEvents?.abort();
+  chartEvents = new AbortController();
+  const options = { signal: chartEvents.signal };
   const plot = document.querySelector(".chart-plot");
   if (!plot) {
     selection = null;
@@ -236,42 +332,53 @@ export function mountChart() {
     }
     const time =
       rows[0].time + ((point.x - 58) / 550) * (rows.at(-1).time - rows[0].time);
-    showSample(plot, nearestSample(rows, time));
+    const index = sampleAtTime(rows, time);
+    if (index < 0) hideSample(plot);
+    else showSample(plot, index);
   };
-  svg.addEventListener("pointermove", pointAt);
-  svg.addEventListener("pointerdown", pointAt);
-  svg.addEventListener("pointerleave", (event) => {
-    // Touch pointers leave immediately after a tap; keep the selected value visible.
-    if (event.pointerType !== "touch") hideSample(plot);
-  });
-  svg.addEventListener("blur", () => hideSample(plot));
-  svg.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      hideSample(plot);
-      return;
-    }
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const rows = filtered();
-    if (!rows.length) return;
-    let index =
-      selection?.metric === metric ? nearestSample(rows, selection.time) : -1;
-    index =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? rows.length - 1
-          : index < 0
-            ? 0
-            : Math.max(
-                0,
-                Math.min(
-                  rows.length - 1,
-                  index + (event.key === "ArrowRight" ? 1 : -1),
-                ),
-              );
-    showSample(plot, index);
-  });
+  svg.addEventListener("pointermove", pointAt, options);
+  svg.addEventListener("pointerdown", pointAt, options);
+  svg.addEventListener(
+    "pointerleave",
+    (event) => {
+      // Touch pointers leave immediately after a tap; keep the selected value visible.
+      if (event.pointerType !== "touch") hideSample(plot);
+    },
+    options,
+  );
+  svg.addEventListener("blur", () => hideSample(plot), options);
+  svg.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape") {
+        hideSample(plot);
+        return;
+      }
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+        return;
+      event.preventDefault();
+      const rows = filtered();
+      if (!rows.length) return;
+      let index =
+        selection?.metric === metric ? nearestSample(rows, selection.time) : -1;
+      index =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? rows.length - 1
+            : index < 0
+              ? 0
+              : Math.max(
+                  0,
+                  Math.min(
+                    rows.length - 1,
+                    index + (event.key === "ArrowRight" ? 1 : -1),
+                  ),
+                );
+      showSample(plot, index);
+    },
+    options,
+  );
   if (selection?.metric === metric)
     showSample(plot, nearestSample(filtered(), selection.time));
   else selection = null;

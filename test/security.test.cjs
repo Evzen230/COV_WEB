@@ -87,7 +87,7 @@ test("API vyžaduje přihlášení, klíč stanice nemůže číst správu, rela
       ).data.online,
       true,
     );
-    time += 12 * 3600000 + 1;
+    time += 30 * 86400000 + 1;
     assert.equal(
       (await req("/api/state", "GET", null, { Cookie })).status,
       401,

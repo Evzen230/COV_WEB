@@ -2,12 +2,14 @@
 set -euo pipefail
 # Run from the project root on Raspberry Pi OS (64 bit), with Node 24.13+ installed.
 if [[ $EUID -ne 0 || $# -ne 2 ]]; then
-  echo 'Použití: sudo bash deploy/install-pi.sh /cesta/update-public.pem https://github.com/OWNER/REPO/releases/latest/download/manifest.json' >&2
+  echo 'Použití: sudo bash deploy/install-pi.sh /cesta/update-public.pem https://github.com/Evzen230/COV_WEB/releases/latest/download/manifest.json' >&2
   exit 1
 fi
 [[ -f server.cjs && -f "$1" && "$2" == https://* && "$2" != *$'\n'* && "$2" != *$'\r'* ]]
 /usr/bin/node -e 'const v=process.versions.node.split(".").map(Number);if(v[0]!==24||v[1]<13)process.exit(1)'
 [[ ! -e /opt/cov-monitor/current && ! -L /opt/cov-monitor/current ]]
+apt-get update
+apt-get install -y avahi-daemon
 id cov-monitor >/dev/null 2>&1 || useradd --system --home-dir /var/lib/cov-monitor --shell /usr/sbin/nologin cov-monitor
 install -d -m 755 /opt/cov-monitor/releases /etc/cov-monitor /usr/local/lib/cov-monitor /var/lib/cov-monitor
 install -d -m 700 /opt/cov-monitor/backups
@@ -25,6 +27,9 @@ install -m 644 deploy/server.env.example /etc/cov-monitor/server.env
 printf '\nUPDATE_MANIFEST_URL=%s\n' "$2" >> /etc/cov-monitor/server.env
 install -m 644 deploy/cov-monitor.service deploy/cov-monitor-update.service deploy/cov-monitor-update.timer /etc/systemd/system/
 runuser -u cov-monitor -- env AUTH_FILE=/var/lib/cov-monitor/data/auth.json /usr/bin/node "$release/scripts/setup.cjs"
+install -m 644 deploy/cov-monitor.service.xml /etc/avahi/services/cov-monitor.service
+systemctl enable --now avahi-daemon
+systemctl restart avahi-daemon
 systemctl daemon-reload
 systemctl enable --now cov-monitor.service cov-monitor-update.timer
 echo 'Instalace dokončena. Otevřete http://IP-MALINY:4173.'

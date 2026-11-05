@@ -6,10 +6,17 @@ import {
 } from "./components/form-feedback.js";
 import { api } from "./core/api.js";
 import { showLogin } from "./core/login.js";
-import { settings, connected, applyState, setConnected } from "./core/state.js";
-import { $, esc, activeAlarms, toast } from "./core/utils.js";
+import {
+  settings,
+  serverState,
+  connected,
+  applyState,
+  setConnected,
+} from "./core/state.js";
+import { $, esc, activeAlarms, toast, stationStatus } from "./core/utils.js";
 import { bindEvents } from "./events.js";
 import { mountChart } from "./components/chart.js";
+import { patchView } from "./core/patch-view.js";
 import { mountAccessSettings } from "./components/access-settings.js";
 import { updateAlarmNotifications } from "./components/alarm-notifications.js";
 import { overview } from "./pages/overview.js";
@@ -20,6 +27,7 @@ import { labsPage } from "./pages/labs.js";
 import { servicePage } from "./pages/service.js";
 import { settingsPage } from "./pages/settings.js";
 import { guidesPage } from "./pages/guides.js";
+
 
 const navigation = [
   ["overview", "◫", "Přehled", overview],
@@ -33,8 +41,11 @@ const navigation = [
 ];
 let busy = false;
 let authenticated = false;
+let preferencesLoaded = false;
 let rendering = 0;
 let navigationKey = "";
+let renderedPage = "";
+let refreshing = false;
 function route() {
   const [page, document] = location.hash.slice(1).split("/");
   return {
@@ -44,6 +55,12 @@ function route() {
 }
 
 function updateNavigation() {
+  const state = stationStatus();
+  $(".station").innerHTML =
+    `<span class="dot"></span>${esc(settings.name)}<small>${esc(state.text)}</small>${state.detail ? `<small>${esc(state.detail)}</small>` : ""}`;
+  $(".station").dataset.kind = state.kind;
+  $(".testbadge").textContent = state.text;
+  $(".testbadge").dataset.kind = state.kind;
   const { page } = route();
   const nextNavigationKey = `${page}:${activeAlarms().length}`;
   if (nextNavigationKey !== navigationKey) {
@@ -71,18 +88,19 @@ async function render() {
   updateNavigation();
   $("#crumb").textContent = selected[2];
   document.title = selected[2] + " · ČOV Monitor";
-  $(".station").innerHTML =
-    `<span class="dot"></span>${esc(settings.name)}<small>BC 4 OPTIMA · Stanice 01</small>`;
-  $(".testbadge").textContent = "STANICE · HTTP";
   $(".sidebottom b").textContent = "Domácí monitoring";
-  $(".sidebottom p").textContent = "Data přijímá domácí server.";
+  $(".sidebottom p").textContent = "Přehled o vaší čistírně.";
   $("footer .muted").textContent = "/ Provoz stanice";
   if (page === "guides")
     $("#main").innerHTML = '<div class="empty">Načítání dokumentace…</div>';
   const content = await selected[3](documentId);
   if (revision !== rendering) return;
-  $("#main").innerHTML = content;
-  refreshUpdates(true);
+  if (page === "overview" && renderedPage === "overview")
+    patchView($("#main"), content);
+  else $("#main").innerHTML = content;
+  renderedPage = page;
+  document.documentElement.classList.remove("booting");
+  refreshUpdates(page === "settings");
   mountChart();
   mountAccessSettings();
   if (page === "settings") mountSettingsTabs();
@@ -95,27 +113,57 @@ async function render() {
 }
 
 async function refresh(redraw = true) {
+  if (refreshing) return;
+  refreshing = true;
   try {
     applyState(await api("/api/state"));
     authenticated = true;
+    if (!preferencesLoaded) {
+      const preference = await api("/api/preferences");
+      if (typeof preference.dark === "boolean") {
+        try {
+          localStorage.setItem("cov-dark", preference.dark);
+        } catch {}
+        document.body.classList.toggle("dark", preference.dark);
+        document.documentElement.classList.toggle("dark", preference.dark);
+        document.documentElement.style.colorScheme = preference.dark
+          ? "dark"
+          : "light";
+        bindTheme();
+      } else
+        await api("/api/preferences", "POST", {
+          dark: document.body.classList.contains("dark"),
+        });
+      preferencesLoaded = true;
+    }
     document.body.classList.remove("locked");
     $("#logout").hidden = false;
     refreshUpdates();
     updateNavigation();
-    updateAlarmNotifications(activeAlarms(), settings.mode, async (id) => {
+    updateAlarmNotifications(activeAlarms(), "live", async (id) => {
       await api(`/api/alarms/${encodeURIComponent(id)}/ack`, "POST");
       await refresh(false);
     });
     if (redraw) await render();
   } catch (error) {
     setConnected(false);
+    updateNavigation();
     if (error.status === 401) {
       authenticated = false;
+      renderedPage = "";
       showLogin(() => refresh());
       return;
     }
     if (redraw) await render();
+    if (!authenticated) {
+      $("#main").innerHTML =
+        '<div class="empty" role="alert">Monitoring se nepodařilo načíst. <button class="btn" id="retry-load">Zkusit znovu</button></div>';
+      $("#retry-load").onclick = () => refresh().catch(() => {});
+      document.documentElement.classList.remove("booting");
+    }
     throw error;
+  } finally {
+    refreshing = false;
   }
 }
 
@@ -134,19 +182,24 @@ async function mutate(operation, message) {
 }
 
 function bindTheme() {
-  let dark = false;
+  let dark = document.documentElement.classList.contains("dark");
   try {
-    dark = JSON.parse(localStorage.getItem("cov-dark")) === true;
+    const saved = localStorage.getItem("cov-dark");
+    if (saved != null) dark = JSON.parse(saved) === true;
   } catch {}
   document.body.classList.toggle("dark", dark);
+  document.documentElement.classList.toggle("dark", dark);
   const update = () => {
     $("#theme").textContent = document.body.classList.contains("dark")
       ? "☀   Světlý režim"
       : "◐   Tmavý režim";
   };
   update();
-  $("#theme").onclick = () => {
+  $("#theme").onclick = async () => {
     document.body.classList.toggle("dark");
+    const dark = document.body.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
     try {
       localStorage.setItem(
         "cov-dark",
@@ -154,6 +207,15 @@ function bindTheme() {
       );
     } catch {}
     update();
+    if (authenticated) {
+      try {
+        await api("/api/preferences", "POST", {
+          dark: document.body.classList.contains("dark"),
+        });
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    }
   };
 }
 
@@ -163,6 +225,8 @@ $("#logout").onclick = async () => {
   try {
     await api("/api/auth/logout", "POST");
     authenticated = false;
+    renderedPage = "";
+    preferencesLoaded = false;
     document.querySelector("#update-notice")?.remove();
     setConnected(false);
     showLogin(() => refresh());

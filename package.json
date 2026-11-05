@@ -11,7 +11,8 @@
     "check": "node scripts/check.cjs",
     "test": "node --test test/*.test.cjs",
     "format": "prettier --write dist server server.cjs scripts test examples/*.mjs README.md docs package.json",
-    "setup": "node scripts/setup.cjs"
+    "setup": "node scripts/setup.cjs",
+    "updates:keys": "node scripts/update-keys.cjs"
   },
   "devDependencies": {
     "prettier": "^3.9.10"

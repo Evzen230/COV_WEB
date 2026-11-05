@@ -5,6 +5,8 @@ import { esc } from "./utils.js";
 function linkTarget(href) {
   if (/^https?:\/\//i.test(href)) return href;
   const documents = {
+    "docs/PAIRING.md": "pairing",
+    "PAIRING.md": "pairing",
     "docs/API.md": "api",
     "API.md": "api",
     "README.md": "readme",

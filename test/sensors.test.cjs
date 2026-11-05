@@ -76,6 +76,16 @@ test("Každý zapnutý senzor má nezávislý alarm výpadku, obnovu a voliteln�
       );
       await send(good);
     }
+    const hiddenState = (await call("/api/settings", "PUT", {
+      ...state.settings, sensorRules: rules, hiddenSensors: ["ph", "level"],
+    })).data;
+    assert.deepEqual(hiddenState.settings.hiddenSensors, ["ph", "level"]);
+    await send(good);
+    assert.equal((await call("/api/state")).data.station.latest.ph, good.ph);
+    assert.equal((await call("/api/settings", "PUT", {
+      ...state.settings, hiddenSensors: ["unknown"],
+    })).status, 400);
+    assert.deepEqual((await call("/api/state")).data.settings.hiddenSensors, ["ph", "level"]);
     const missing = { ...good };
     delete missing.ec;
     await send(missing);

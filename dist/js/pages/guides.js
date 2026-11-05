@@ -5,6 +5,19 @@ import { header } from "../components/dashboard.js";
 
 export const documents = [
   {
+    id: "firmware",
+    icon: "⌁",
+    title: "Firmware Nano a ESP32",
+    description:
+      "Pětižilové propojení, zapojení čidel, nahrání a kalibrace hladiny.",
+  },
+  {
+    id: "pairing",
+    icon: "⌁",
+    title: "Připojení ESP32 přes mobil",
+    description: "Domácí Wi-Fi, výběr serveru, párovací kód a změna připojení.",
+  },
+  {
     id: "updates",
     icon: "↑",
     title: "Aktualizace serveru a ESP32",
@@ -58,13 +71,11 @@ export async function guidesPage(documentId = "readme") {
             <a
               href="#guides/${document.id}"
               class="doc-choice ${document.id === selected.id ? "active" : ""}"
+              title="${esc(document.description)}"
               ${document.id === selected.id ? 'aria-current="page"' : ""}
             >
-              <span>${document.icon}</span>
-              <div>
-                <b>${document.title}</b>
-                <small>${document.description}</small>
-              </div>
+              <span aria-hidden="true">${document.icon}</span>
+              <b>${document.title}</b>
             </a>
           `,
         )

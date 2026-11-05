@@ -22,6 +22,8 @@ async function simulate({
   put(base + "/releases/old/package.json", '{"version":"0.3.0"}');
   put(data + "/cov.sqlite", "old database");
   put(data + "/cov.sqlite-wal", "old wal");
+  put(data + "/cov.sqlite.second.sqlite", "station database");
+  put(data + "/cov.sqlite.second.sqlite-wal", "station wal");
   put(data + "/auth.json", "original credentials");
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
   put(
@@ -58,7 +60,13 @@ async function simulate({
   );
   put(queue + "/server.bundle", bundle);
   if (interrupted) {
-    for (const name of ["cov.sqlite", "cov.sqlite-wal", "auth.json"])
+    for (const name of [
+      "cov.sqlite",
+      "cov.sqlite-wal",
+      "auth.json",
+      "cov.sqlite.second.sqlite",
+      "cov.sqlite.second.sqlite-wal",
+    ])
       put(base + "/backups/interrupted/" + name, files.get(data + "/" + name));
     put(
       base + "/transaction.json",
@@ -75,6 +83,14 @@ async function simulate({
   let nextFd = 1;
   const fakeFs = {
     constants: fs.constants,
+    readdirSync: (directory) =>
+      [...files.keys()]
+        .filter(
+          (p) =>
+            p.startsWith(directory + "/") &&
+            !p.slice(directory.length + 1).includes("/"),
+        )
+        .map((p) => p.slice(directory.length + 1)),
     existsSync: (p) => files.has(p) || links.has(p) || dirs.has(p),
     lstatSync: (p) => ({ isSymbolicLink: () => links.has(p) }),
     realpathSync: (p) => links.get(p) || p,
@@ -132,8 +148,11 @@ async function simulate({
       command === "systemctl" &&
       args[0] === "start" &&
       !links.get(base + "/current").endsWith("/old")
-    )
+    ) {
       put(data + "/cov.sqlite", "new schema");
+      put(data + "/cov.sqlite.second.sqlite", "new station schema");
+      put(data + "/cov.sqlite.second.sqlite-wal", "new station wal");
+    }
   };
   await vm.runInNewContext(source, {
     require: (name) =>
@@ -174,6 +193,14 @@ test("Pi failed health check restores old code, database, WAL and credentials", 
   assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
   assert.equal(s.files.get(s.data + "/cov.sqlite").toString(), "old database");
   assert.equal(s.files.get(s.data + "/cov.sqlite-wal").toString(), "old wal");
+  assert.equal(
+    s.files.get(s.data + "/cov.sqlite.second.sqlite").toString(),
+    "station database",
+  );
+  assert.equal(
+    s.files.get(s.data + "/cov.sqlite.second.sqlite-wal").toString(),
+    "station wal",
+  );
   assert.equal(
     s.files.get(s.data + "/auth.json").toString(),
     "original credentials",

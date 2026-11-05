@@ -36,15 +36,30 @@ function switchTo(target) {
   fs.symlinkSync(target, base + "/next");
   fs.renameSync(base + "/next", current);
 }
+function dataFiles(directory) {
+  return [
+    ...new Set([
+      "cov.sqlite",
+      "cov.sqlite-wal",
+      "cov.sqlite-shm",
+      "auth.json",
+      ...fs
+        .readdirSync(directory)
+        .filter((name) =>
+          /^cov\.sqlite\.[a-z0-9][a-z0-9-]{0,59}\.sqlite(?:-wal|-shm)?$/.test(
+            name,
+          ),
+        ),
+    ]),
+  ];
+}
 function restore(t) {
   run("systemctl", ["stop", "cov-monitor.service"]);
   switchTo(t.previous);
-  for (const name of [
-    "cov.sqlite",
-    "cov.sqlite-wal",
-    "cov.sqlite-shm",
-    "auth.json",
-  ]) {
+  for (const name of new Set([
+    ...dataFiles("/var/lib/cov-monitor/data"),
+    ...dataFiles(t.backup),
+  ])) {
     const target = "/var/lib/cov-monitor/data/" + name;
     fs.rmSync(target, { force: true });
     if (fs.existsSync(t.backup + "/" + name)) {
@@ -128,12 +143,7 @@ async function main() {
     try {
       fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
       // Server is stopped; copy database AND WAL before the new process can migrate data.
-      for (const name of [
-        "cov.sqlite",
-        "cov.sqlite-wal",
-        "cov.sqlite-shm",
-        "auth.json",
-      ])
+      for (const name of dataFiles("/var/lib/cov-monitor/data"))
         if (fs.existsSync("/var/lib/cov-monitor/data/" + name)) {
           const fd = fs.openSync(
             "/var/lib/cov-monitor/data/" + name,

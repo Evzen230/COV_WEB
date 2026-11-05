@@ -9,7 +9,7 @@
 
 // Change for each release. Use the same target in the signed release manifest.
 #define FIRMWARE_VERSION "0.3.0"
-#define HARDWARE_TARGET "esp32-ds18b20-v1"
+#define HARDWARE_TARGET "esp32-nano-v1"
 // Defer Arduino's startup confirmation until sensor and server checks pass.
 extern "C" bool verifyRollbackLater(void) { return true; }
 // HTTPS reverse proxy on the Raspberry Pi; include the issuing CA below.
@@ -32,7 +32,7 @@ void confirmFirmware() {
     esp_ota_mark_app_valid_cancel_rollback();
 }
 
-void pollFirmware(const char* apiKey) {
+void pollFirmware(const char* apiKey, const char* deviceId) {
   if (!String(OTA_BASE_URL).startsWith("https://") || !strlen(OTA_CA_CERT) || WiFi.status() != WL_CONNECTED) return;
   if (millis() - lastOtaCheck < 60000) return;
   lastOtaCheck = millis();
@@ -40,7 +40,7 @@ void pollFirmware(const char* apiKey) {
   client.setCACert(OTA_CA_CERT);
   HTTPClient http;
   http.setConnectTimeout(5000); http.setTimeout(10000);
-  if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/update")) return;
+  if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/update?device_id=" + String(deviceId))) return;
   http.addHeader("X-API-Key", apiKey);
   if (http.GET() != 200 || http.getSize() > 4096) { http.end(); return; }
   JsonDocument doc;
@@ -61,7 +61,7 @@ void pollFirmware(const char* apiKey) {
   int a,b,c,x,y,z;
   if (sscanf(version.c_str(), "%d.%d.%d", &a,&b,&c) != 3 || sscanf(FIRMWARE_VERSION, "%d.%d.%d", &x,&y,&z) != 3) return;
   if (a < x || (a == x && b < y) || (a == x && b == y && c <= z)) return;
-  if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/firmware")) return;
+  if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/firmware?device_id=" + String(deviceId))) return;
   http.addHeader("X-API-Key", apiKey);
   if (http.GET() != 200) { http.end(); return; }
   int size = http.getSize();

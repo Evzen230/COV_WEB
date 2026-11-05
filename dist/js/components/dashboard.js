@@ -6,6 +6,7 @@ import {
   metric,
   ack,
   sensors,
+  visibleSensors,
   serverState,
 } from "../core/state.js";
 import {
@@ -20,6 +21,8 @@ import {
   filtered,
   sensorAge,
   sensorTime,
+  levelTrend,
+  sensorAlarms,
 } from "../core/utils.js";
 
 export function header(title, sub, actions = "") {
@@ -42,7 +45,7 @@ function levelDisplay() {
   return {
     fill: Number.isFinite(reading) ? Math.max(0, Math.min(100, reading)) : 0,
     alarm:
-      activeAlarms().some((alarm) => alarm.id === "level") ||
+      sensorAlarms("level").length > 0 ||
       (reading != null && reading >= settings.levelMax),
     missing: reading == null,
   };
@@ -59,7 +62,7 @@ function tankGraphic(compact = false) {
 export function metrics() {
   return /* HTML */ /* HTML */ `
     <div class="metrics">
-      ${sensors
+      ${visibleSensors()
         .slice(0, 4)
         .map(
           (s) => /* HTML */ `
@@ -76,10 +79,11 @@ export function metrics() {
                 ${s.id === "level" ? tankGraphic(true) : ""}
               </div>
               <p class="sensor-age">${sensorAge(s.id)}</p>
+              ${s.id === "level" ? `<p class="level-trend">${levelTrend()}</p>` : ""}
               <div class="metricfoot">
                 ${status(s)}
                 <span>
-                  ${s.id === "level" ? "Objem ≈ " + fmt(value("level") == null ? null : (value("level") * settings.tankVolume) / 100) + " l" : "Měření ze stanice"}
+                  ${s.id === "level" ? "Objem ≈ " + fmt(value("level") == null ? null : (value("level") * settings.tankVolume) / 100) + " l" : "Měření ze senzorů"}
                 </span>
               </div>
             </div>
@@ -105,14 +109,11 @@ export function sensorTable() {
           </tr>
         </thead>
         <tbody>
-          ${sensors
+          ${visibleSensors()
             .map(
               (s) => /* HTML */ `
                 <tr>
-                  <td class="sensorname">
-                    ${s.name}
-                    <small>${s.device}</small>
-                  </td>
+                  <td class="sensorname">${s.name}</td>
                   <td class="mono">${fmt(value(s.id))} ${s.unit}</td>
                   <td>${status(s)}</td>
                   <td class="muted">
@@ -137,7 +138,9 @@ export function process() {
         <span class="pill">${"Stanice"}</span>
       </div>
       <div class="process">
-        <div class="tank">
+        ${
+          !settings.hiddenSensors?.includes("level")
+            ? `<div class="tank">
           ${tankGraphic()}
           <div>
             <small>AKTIVAČNÍ NÁDRŽ</small>
@@ -146,6 +149,7 @@ export function process() {
               <span class="muted" style="font-size:14px">%</span>
             </strong>
             <small>Odhad z objemu ${fmt(settings.tankVolume)} l</small>
+            <small>${levelTrend()}</small>
           </div>
         </div>
         <div class="progress${levelDisplay().alarm ? " tank-alarm" : ""}">
@@ -157,7 +161,9 @@ export function process() {
             ${levelDisplay().missing ? "Bez měření" : levelDisplay().alarm ? "Alarm hladiny" : "Provozní hladina"}
           </span>
           <span>100 %</span>
-        </div>
+        </div>`
+            : ""
+        }
         <div class="processrow">
           <div class="flex">
             <span class="equipment">ϟ</span>
@@ -175,7 +181,7 @@ export function process() {
             <span class="equipment">⌁</span>
             <div>
               Komunikační jednotka
-              <small>cov-monitor-01 · ESP32</small>
+              <small>Příjem aktuálních měření</small>
             </div>
           </div>
           <span class="${healthy() ? "ok" : "warn"}">
@@ -212,7 +218,9 @@ export function eventList() {
       </span>
       <div>
         <b>${"Příjem dat ze stanice"}</b>
-        <p>${"Server přijímá data přes HTTP API a vyhodnocuje dostupnost."}</p>
+        <p>
+          ${healthy() ? "Stanice odesílá aktuální měření." : "Aktuální měření nejsou dostupná."}
+        </p>
         <time>Monitoring stanice</time>
       </div>
     </div>

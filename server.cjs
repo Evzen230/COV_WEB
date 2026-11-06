@@ -381,6 +381,11 @@ function createApp({
             200,
             pairing.claim(await body(req), req.socket.remoteAddress),
           );
+        if (p === "/api/v1/display/pair" && m === "POST")
+          return json(
+            200,
+            displays.claim(await body(req), req.socket.remoteAddress),
+          );
         if (p === "/api/v1/display" && m === "GET") {
           displays.authenticate(req);
           const station = evaluate();
@@ -402,6 +407,13 @@ function createApp({
           return json(200, displays.list());
         if (p === "/api/displays" && m === "POST")
           return json(201, displays.issue((await body(req)).name));
+        if (p === "/api/displays/pairing" && m === "POST")
+          return json(201, displays.pairNew((await body(req)).name));
+        const displayPairMatch = p.match(
+          /^\/api\/displays\/([a-f0-9]{24})\/pairing$/,
+        );
+        if (displayPairMatch && m === "POST")
+          return json(201, displays.pair(displayPairMatch[1]));
         const displayMatch = p.match(/^\/api\/displays\/([a-f0-9]{24})$/);
         if (displayMatch && m === "DELETE") {
           displays.revoke(displayMatch[1]);

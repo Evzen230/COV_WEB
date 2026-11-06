@@ -1,29 +1,66 @@
 const { randomBytes, createHash, timingSafeEqual } = require("node:crypto");
 const hash = (key) => createHash("sha256").update(key).digest();
+const { createPairing } = require("./pairing.cjs");
 
 function createDisplays({ get, put, now = Date.now }) {
   const catalog = () => get("displays", []);
+  const pairing = createPairing({
+    now,
+    fleet: { has: (id) => catalog().some((item) => item.id === id) },
+    get: () =>
+      Object.fromEntries(
+        catalog()
+          .filter((item) => item.hash)
+          .map((item) => [item.id, { hash: item.hash }]),
+      ),
+    put: (key, credentials) =>
+      put(
+        "displays",
+        catalog().map((item) => {
+          const { hash: previous, ...rest } = item;
+          return credentials[item.id]
+            ? { ...rest, hash: credentials[item.id].hash }
+            : rest;
+        }),
+      ),
+  });
+  function create(name, key) {
+    if (typeof name !== "string" || !name.trim() || name.length > 60)
+      throw Object.assign(Error("Zadejte název displeje (nejvýše 60 znaků)."), {
+        status: 400,
+      });
+    if (catalog().length >= 20)
+      throw Object.assign(Error("Nejvýše 20 displejů."), { status: 409 });
+    const item = {
+      id: randomBytes(12).toString("hex"),
+      name: name.trim(),
+      created_at: now(),
+      ...(key ? { hash: hash(key).toString("hex") } : {}),
+    };
+    put("displays", [...catalog(), item]);
+    return item;
+  }
   return {
-    list: () => catalog().map(({ hash: secret, ...item }) => item),
+    list: () =>
+      catalog().map(({ hash: secret, ...item }) => ({
+        ...item,
+        paired: !!secret,
+      })),
+    pairNew(name) {
+      const item = create(name);
+      return { ...pairing.issue(item.id), name: item.name };
+    },
+    pair(id) {
+      return pairing.issue(id);
+    },
+    claim: pairing.claim,
     issue(name) {
-      if (typeof name !== "string" || !name.trim() || name.length > 60)
-        throw Object.assign(
-          Error("Zadejte název displeje (nejvýše 60 znaků)."),
-          { status: 400 },
-        );
-      if (catalog().length >= 20)
-        throw Object.assign(Error("Nejvýše 20 displejů."), { status: 409 });
       const key = randomBytes(32).toString("hex");
-      const item = {
-        id: randomBytes(12).toString("hex"),
-        name: name.trim(),
-        created_at: now(),
-        hash: hash(key).toString("hex"),
-      };
-      put("displays", [...catalog(), item]);
+      const item = create(name, key);
       return { id: item.id, name: item.name, key };
     },
     revoke(id) {
+      pairing.revoke(id);
       put(
         "displays",
         catalog().filter((item) => item.id !== id),
@@ -36,8 +73,10 @@ function createDisplays({ get, put, now = Date.now }) {
       if (
         typeof key !== "string" ||
         key.length !== 64 ||
-        !catalog().some((item) =>
-          timingSafeEqual(hash(key), Buffer.from(item.hash, "hex")),
+        !catalog().some(
+          (item) =>
+            item.hash &&
+            timingSafeEqual(hash(key), Buffer.from(item.hash, "hex")),
         )
       )
         throw Object.assign(Error("Neplatný klíč displeje."), { status: 401 });

@@ -86,22 +86,31 @@ Případnou SD kartu nezapojujte; při zapojeném společném SPI musí být jej
 
 ### Nahrání a první nastavení
 
-1. Použijte ESP32 Arduino core 3.3.11, ArduinoJson 7, **Adafruit GFX Library**, **Adafruit ILI9341** a **Adafruit BusIO**. Nahrajte celý sketch `examples/esp32_display` včetně `display_setup.h`, deska ESP32 Dev Module.
-2. Displej při prvním spuštění zobrazí SSID a unikátní heslo vlastní nastavovací Wi-Fi. Údaje si poznamenejte pro servis; běžný restart je nemění.
-3. V hlavním webu otevřete **Nastavení → Připojení → Domácí displeje** a vytvořte klíč. Ukáže se jen jednou.
-4. Připojte mobil k Wi-Fi displeje a otevřete **http://192.168.4.1**. Zadejte domácí Wi-Fi 2,4 GHz, adresu serveru (například `http://raspberrypi.local:4173`) a klíč displeje. Nepoužívejte klíč měřicí stanice ani heslo webu.
-5. Displej před uložením ověří Wi-Fi i přístup k přehledu. Po uložení se restartuje. Změna kanálu při připojování může mobil odpojit; případně se znovu připojte k nastavovací Wi-Fi.
+1. Použijte ESP32 Arduino core 3.3.11, ArduinoJson 7, **Adafruit GFX Library**, **Adafruit ILI9341** a **Adafruit BusIO**. Nahrajte celý sketch `examples/esp32_display` včetně `display_setup.h`, `display_pairing.h` a `display_ui.h`, deska ESP32 Dev Module.
+2. Displej při prvním spuštění zobrazí SSID a unikátní osmiznakové heslo vlastní nastavovací Wi-Fi. Obsahuje malá písmena a číslice bez znaků 0/O, 1/I/l. Údaje si poznamenejte pro servis; běžný restart je nemění. Při přechodu z původního firmwaru se dlouhé hexadecimální heslo jednorázově nahradí novým; přečtěte je na displeji a v mobilu případně odstraňte starou uloženou síť. Domácí připojení i klíč zůstávají zachované.
+3. V hlavním webu otevřete **Nastavení → Připojení → Domácí displeje** a zvolte **Spárovat nový displej**. Zadejte jeho název. Zobrazí se osmiznakový kód ve tvaru `ABCD-EFGH`, platný 10 minut.
+4. Připojte mobil k Wi-Fi displeje a otevřete **http://192.168.4.1**. Portál automaticky vyhledá Wi-Fi. Vyberte domácí síť 2,4 GHz (nebo ručně zadejte skrytou síť), napište její heslo a stiskněte **Připojit k Wi-Fi**. Následně se automaticky vyhledají servery se službou `_cov-monitor._tcp`, stejně jako u měřicí stanice. Jediný nalezený server se předvybere; při více serverech vyberte správný. Zůstává i ruční adresa, například `http://raspberrypi.local:4173`. Vyhledání vyžaduje Avahi na malině a dostupný mDNS multicast; Windows server obvykle zadáte ručně.
+5. Vložte krátký párovací kód a zvolte **Ověřit a uložit**. Velikost písmen, mezery ani pomlčka nevadí. Displej si dlouhý přístupový klíč převezme automaticky; nic dlouhého nepřepisujete. Displej ověří přístup k přehledu a po uložení se restartuje. Změna kanálu při připojování může mobil odpojit; případně se znovu připojte k nastavovací Wi-Fi. Po opětovném otevření portálu se úspěšné připojení rozpozná a hledání serveru pokračuje. Na již nastaveném displeji lze ponechat pole kódu prázdné a zachovat uložené spárování; tlačítko **Uložit pouze změnu Wi-Fi** zachová také adresu serveru.
 
-Údaje se ukládají jako jeden NVS záznam. Nastavení lze znovu otevřít podržením tlačítka na 5 s. U již nastaveného zařízení se portál po 15 minutách zavře a obnoví uloženou konfiguraci; u nového zařízení zůstane otevřený. Klíč lze okamžitě zrušit ve webu a následně vytvořit nový. Měření se tím nemažou.
+Údaje se ukládají jako jeden NVS záznam. Nastavení lze znovu otevřít podržením tlačítka na 5 s. U již nastaveného zařízení se portál po 15 minutách zavře a obnoví uloženou konfiguraci; u nového zařízení zůstane otevřený. Přístup lze okamžitě zrušit ve webu; nové párování nabídne tlačítko **Nový párovací kód**. Vystavení nového kódu ponechá současný přístup funkční, dokud není nové párování dokončené. Nový kód ruší předchozí kód, restart serveru ruší nevyužité kódy. Již připojené displeje včetně původních ručně vložených klíčů zůstávají funkční. Měření se tím nemažou.
 
 Displej načítá data každých **15 s**. Zobrazuje hladinu, teplotu, stav spojení, stáří každé veličiny a alarmy ze serveru; více alarmů střídá po 5 s. Stáří počítá z `server_time` a `measured_at`, potom přičítá dobu od přijetí pomocí monotónního časovače ESP. Nevyžaduje vlastní synchronizaci hodin. Při neúspěšném požadavku nebo odpojení Wi-Fi ponechá poslední hodnoty s označením ztráty spojení. Stará měření označí podle serverového limitu dostupnosti, chybějící hodnoty ukáže jako `--`. Pro vestavěné písmo převádí českou diakritiku na základní znaky.
 
 Síťový provoz displeje používá HTTP stejně jako současná telemetrie, tedy pouze v důvěryhodné domácí síti. Klíč displeje zpřístupňuje pouze monitorovací přehled; nedovoluje historii, zálohy, nastavení, telemetrii ani potvrzování alarmů.
 
+### Vzhled a překreslování TFT
+
+Současné ESP32 DevKit V1 a ILI9341 stačí pro velké čitelné hodnoty, dvě karty, indikátor naplnění, stavový pruh, stáří měření a samostatnou oblast alarmů. Dotyk zůstává rezervovaný pro další verzi.
+
+UI se skládá do RGB565 bufferu 320×100 bodů (64 kB) a hotové oblasti se přenesou na TFT jen při změně jejich obsahu. Obrazovka se každou sekundu nemaže; neměnné karty se neposílají znovu, mění se hlavně malé údaje o stáří. Tím je odstraněné původní střídání černého pozadí a textu. Skutečnou plynulost ověřte po nahrání na TFT. Pokud by problikával přímo podsvit, nebo se ESP restartovalo, zkontrolujte napájení a vedení; to je jiný problém než překreslování obrazu.
+
 ### Rozhraní pro displeje
 
 - `GET /api/displays`: seznam bez klíčů a hashů, vyžaduje přihlášení do webu.
-- `POST /api/displays` s `{ "name": "Kuchyň" }`: vytvoří `{id,name,key}`, klíč vrátí jen zde; nejvýše 20 displejů.
+- `POST /api/displays/pairing` s `{ "name": "Kuchyň" }`: vytvoří čekající displej a vrátí `{device_id,name,code,expires}`; nejvýše 20 displejů. Vyžaduje přihlášení.
+- `POST /api/displays/:id/pairing`: vystaví nový kód pro existující displej, vyžaduje přihlášení.
+- `POST /api/v1/display/pair`: výměna důkazu znalosti kódu za zašifrovaný klíč displeje, bez webového přihlášení. Stejný SHA-256/HMAC/AES-GCM protokol jako u stanice, ale s oddělenými kódy a oprávněními; 10 pokusů/minutu/IP a 60/minutu celkem. Kód má platnost 10 minut. Opakování stejného nonce vrací stejnou odpověď, jiné nonce již použitý kód odmítne. ESP nonce drží pro opakování po ztracené odpovědi či neúspěšném uložení.
+- Původní `POST /api/displays` s `{name}` a odpovědí `{id,name,key}` zůstává pro kompatibilitu starších klientů; nový web jej nepoužívá.
 - `DELETE /api/displays/:id`: okamžité zrušení klíče, vyžaduje přihlášení.
 - `GET /api/v1/display`: vyžaduje `X-API-Key` nebo Bearer s klíčem displeje. Vrací `version:1`, `name`, `server_time` v milisekundách UTC, `online`, `stale_after_ms`, objekty `temperature` a `level` (`value`, `station_id`, `status`, `measured_at`, `last_valid_at`) a aktivní `alarms`. Hodnota může být `null`; data i časy odpovídají zdrojům zvoleným pro hlavní přehled. Klíč stanice zde neplatí.
 - Správa Wi-Fi webem: přihlášené `GET /api/network/status`, `GET /api/network/scan` a `POST /api/network/connect` s `{ssid,password,hidden}`. Změna vrací HTTP 202; výsledek lze číst ve stavu sítě. Heslo se ve stavu nevrací.
@@ -117,4 +126,4 @@ Automatické testy API a simulované síťové služby **nenahrazují hardware t
 
 Stav fyzického ověření: **dosud neověřeno na zapojené stanici, Raspberry Pi ani TFT**. Samotná kompilace nepotvrzuje napájení, správnost kabeláže ani chování konkrétního routeru.
 
-Softwarové ověření 6. 11. 2026: 64 automatických testů, kontrola syntaxe a shellových instalátorů, kontrola všech webových stránek v obou motivech na mobilní i desktopové šířce. Oba ESP32 sketche se zkompilovaly pro ESP32 Dev Module s core 3.3.11 a ArduinoJson 7.4.3; displej s Adafruit GFX 1.13.0, ILI9341 1.7.0 a BusIO 1.17.4. Spotřeba flash stanice přibližně 89 %, displeje 80 % výchozího aplikačního oddílu.
+Softwarové ověření 6. 11. 2026: 73 automatických testů včetně scénářů nastavovacího portálu displeje, kontrola syntaxe a shellových instalátorů, kontrola všech webových stránek v obou motivech na mobilní i desktopové šířce. Oba ESP32 sketche se zkompilovaly pro ESP32 Dev Module s core 3.3.11 a ArduinoJson 7.4.3; displej s Adafruit GFX 1.13.0, ILI9341 1.7.0 a BusIO 1.17.4. Spotřeba flash stanice přibližně 89 %, displeje 83 % výchozího aplikačního oddílu.

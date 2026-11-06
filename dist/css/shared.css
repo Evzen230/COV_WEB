@@ -3,6 +3,24 @@
   --panel-space: 22px;
   --section-gap: 22px;
 }
+[data-display-pairing] {
+  padding: 18px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+[data-display-code] {
+  font: 600 28px monospace;
+  letter-spacing: 0.14em;
+  max-width: 320px;
+  margin-bottom: 14px;
+}
+.connection-row small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+}
 .panelbody {
   padding: var(--panel-space);
 }
@@ -28,17 +46,6 @@
 }
 .connection-row > span {
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-[data-display-secret] {
-  padding: 16px;
-  margin-top: 18px;
-  background: var(--soft);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-[data-display-secret] textarea {
-  font-family: monospace;
   overflow-wrap: anywhere;
 }
 [data-network-message],

@@ -3,7 +3,7 @@ import { esc } from "../core/utils.js";
 
 export function connectionPanels() {
   return `<div class="card" id="network-panel"><div class="panelhead"><h2>Wi-Fi Raspberry Pi</h2></div><div class="panelbody"><p data-network-status role="status">Načítání připojení…</p><form data-network-form class="formgrid" hidden><div class="full actions"><button type="button" class="btn" data-network-scan>Vyhledat sítě</button></div><label>Dostupné sítě<select data-network-list><option value="">Zadejte síť ručně</option></select></label><label>Název Wi-Fi (SSID)<input name="ssid" required maxlength="32" autocomplete="off"></label><label>Heslo Wi-Fi<input name="password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label><label class="sensor-toggle"><input type="checkbox" name="hidden">Skrytá síť</label><p class="full subtitle">Po změně připojení se prohlížeč může odpojit. Připojte mobil ke stejné domácí síti jako malinu. Při neúspěchu se obnoví původní připojení nebo nastavovací Wi-Fi ze štítku; otevřete http://192.168.4.1:8080.</p><button class="btn primary">Připojit k Wi-Fi</button></form><p data-network-message role="status"></p></div></div>
-  <div class="card" id="displays-panel"><div class="panelhead"><h2>Domácí displeje</h2></div><div class="panelbody"><p class="subtitle">Samostatné displeje zobrazují přehled a alarmy. Jejich klíče umožňují pouze čtení.</p><div data-display-list role="status">Načítání displejů…</div><form data-display-form class="formgrid"><label>Název displeje<input name="name" required maxlength="60" placeholder="Displej v kuchyni"></label><button class="btn primary">Vytvořit klíč displeje</button></form><div data-display-secret hidden><p>Klíč se zobrazí pouze jednou. Zadejte jej do nastavovací stránky displeje.</p><textarea readonly rows="3" aria-label="Klíč displeje"></textarea><button type="button" class="btn" data-display-hide>Skrýt klíč</button></div><p data-display-message role="status"></p></div></div>`;
+  <div class="card" id="displays-panel"><div class="panelhead"><h2>Domácí displeje</h2></div><div class="panelbody"><p class="subtitle">Samostatné displeje zobrazují přehled a alarmy. Připojíte je krátkým jednorázovým kódem. Přístup umožňuje pouze čtení.</p><div data-display-list role="status">Načítání displejů…</div><form data-display-form class="formgrid"><label>Název displeje<input name="name" required maxlength="60" placeholder="Displej v kuchyni"></label><button class="btn primary">Spárovat nový displej</button></form><div data-display-pairing hidden></div><p data-display-message role="status"></p></div></div>`;
 }
 
 export async function mountConnections() {
@@ -17,7 +17,8 @@ export async function mountConnections() {
     element.textContent = text;
     element.dataset.kind = failed ? "error" : "info";
   };
-  let revision = 0;
+  let revision = 0,
+    displayedCatalog = "";
   async function status() {
     try {
       const v = await api("/api/network/status");
@@ -82,16 +83,25 @@ export async function mountConnections() {
     }
   };
   const displayMessage = displays.querySelector("[data-display-message]");
+  const showPairing = (result) => {
+    const panel = displays.querySelector("[data-display-pairing]");
+    panel.hidden = false;
+    panel.dataset.displayId = result.device_id;
+    panel.innerHTML = displayPairingCard(result);
+  };
   const loadDisplays = async () => {
     const current = ++revision;
     try {
       const items = await api("/api/displays");
       if (!displays.isConnected || current !== revision) return;
+      const signature = JSON.stringify(items);
+      if (signature === displayedCatalog) return;
+      displayedCatalog = signature;
       displays.querySelector("[data-display-list]").innerHTML = items.length
         ? items
             .map(
               (d) =>
-                `<div class="connection-row"><span>${esc(d.name)}</span><button type="button" class="btn danger" data-revoke-display="${esc(d.id)}">Zrušit přístup</button></div>`,
+                `<div class="connection-row"><span>${esc(d.name)}<small>${d.paired ? "Spárovaný displej" : "Čeká na spárování"}</small></span><button type="button" class="btn" data-pair-display="${esc(d.id)}">Nový párovací kód</button><button type="button" class="btn danger" data-revoke-display="${esc(d.id)}">Zrušit přístup</button></div>`,
             )
             .join("")
         : '<div class="empty">Zatím není připojen žádný displej.</div>';
@@ -105,13 +115,14 @@ export async function mountConnections() {
     const button = e.currentTarget.querySelector("button");
     button.disabled = true;
     try {
-      const result = await api("/api/displays", "POST", {
+      const result = await api("/api/displays/pairing", "POST", {
         name: e.currentTarget.elements.name.value,
       });
-      const secret = displays.querySelector("[data-display-secret]");
-      secret.hidden = false;
-      secret.querySelector("textarea").value = result.key;
-      notify(displayMessage, "Klíč vytvořen. Uložte jej do displeje.");
+      showPairing(result);
+      notify(
+        displayMessage,
+        "Zadejte kód do nastavovací stránky displeje. Platí 10 minut.",
+      );
       await loadDisplays();
     } catch (e) {
       notify(displayMessage, e.message, true);
@@ -119,29 +130,69 @@ export async function mountConnections() {
       button.disabled = false;
     }
   };
-  displays.querySelector("[data-display-hide]").onclick = () => {
-    const secret = displays.querySelector("[data-display-secret]");
-    secret.querySelector("textarea").value = "";
-    secret.hidden = true;
-  };
   displays.addEventListener("click", async (e) => {
-    const button = e.target.closest("[data-revoke-display]");
+    const hide = e.target.closest("[data-display-hide]");
+    if (hide) {
+      const panel = displays.querySelector("[data-display-pairing]");
+      panel.innerHTML = "";
+      panel.hidden = true;
+      return;
+    }
+    const copy = e.target.closest("[data-display-copy]");
+    if (copy) {
+      const input = displays.querySelector("[data-display-code]");
+      try {
+        await navigator.clipboard.writeText(input.value);
+        notify(displayMessage, "Kód zkopírován.");
+      } catch {
+        input.select();
+        notify(displayMessage, "Kód je označený; zkopírujte jej.");
+      }
+      return;
+    }
+    const button = e.target.closest(
+      "[data-revoke-display], [data-pair-display]",
+    );
     if (!button) return;
     button.disabled = true;
     try {
+      if (button.dataset.pairDisplay) {
+        showPairing(
+          await api(
+            `/api/displays/${button.dataset.pairDisplay}/pairing`,
+            "POST",
+          ),
+        );
+        notify(
+          displayMessage,
+          "Nový kód platí 10 minut. Předchozí kód už neplatí.",
+        );
+        return;
+      }
       await api(`/api/displays/${button.dataset.revokeDisplay}`, "DELETE");
+      const panel = displays.querySelector("[data-display-pairing]");
+      if (panel.dataset.displayId === button.dataset.revokeDisplay) {
+        panel.hidden = true;
+        panel.innerHTML = "";
+      }
       notify(displayMessage, "Přístup displeje zrušen.");
       await loadDisplays();
     } catch (err) {
       notify(displayMessage, err.message, true);
+    } finally {
       button.disabled = false;
     }
   });
   await Promise.allSettled([status(), loadDisplays()]);
   const poll = async () => {
     if (!network.isConnected) return;
-    await status();
+    await Promise.allSettled([status(), loadDisplays()]);
     if (network.isConnected) setTimeout(poll, 5000);
   };
   if (network.isConnected) setTimeout(poll, 5000);
+}
+
+export function displayPairingCard(result) {
+  const code = result.code.replace(/^(.{4})(.{4})$/, "$1-$2");
+  return `<p>Vložte tento kód do nastavení displeje. Platí 10 minut, do ${esc(new Date(result.expires).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }))}.</p><label>Párovací kód displeje<input data-display-code readonly value="${esc(code)}" autocomplete="off"></label><div class="actions"><button type="button" class="btn" data-display-copy>Kopírovat kód</button><button type="button" class="btn" data-display-hide>Skrýt kód</button></div><p class="subtitle">Po úspěšném párování si displej uloží přístup automaticky. Nové párování nahradí jeho předchozí přístup.</p>`;
 }

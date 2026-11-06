@@ -128,6 +128,7 @@ function createUpdates({
       station,
       release,
       job,
+      pending: queueBusy(),
       checked: get("updateChecked", null),
       error: get("updateError", null),
       serverRollbacks: serverRollbacks(),
@@ -254,6 +255,7 @@ function createUpdates({
       if (createHash("sha256").update(bytes).digest("hex") !== item.sha256)
         throw Error("Kontrolní součet nesouhlasí.");
       const filename = kind === "server" ? "server.bundle" : firmwareFilename;
+      const operationId = randomUUID();
       fs.writeFileSync(path.join(directory, filename + ".tmp"), bytes, {
         mode: 0o600,
       });
@@ -264,7 +266,7 @@ function createUpdates({
       if (kind === "server") {
         fs.writeFileSync(
           path.join(directory, "request.tmp"),
-          JSON.stringify(envelope),
+          JSON.stringify({ ...envelope, operationId }),
           { mode: 0o600 },
         );
         fs.renameSync(
@@ -274,11 +276,11 @@ function createUpdates({
       } else
         put("firmwareOffer", {
           ...item,
-          id: randomUUID(),
+          id: operationId,
           rollback: Boolean(rollbackVersion),
         });
       put("updateError", null);
-      return { queued: true, version: item.version };
+      return { queued: true, version: item.version, operationId };
     } catch (error) {
       put("updateError", error.message);
       error.status = 400;
@@ -309,13 +311,18 @@ function createUpdates({
         status: 409,
       });
     const filename = path.join(directory, "rollback-request.json");
+    const operationId = randomUUID();
     fs.writeFileSync(
       filename + ".tmp",
-      JSON.stringify({ schema: 1, id, acknowledgeDataLoss: true }),
+      JSON.stringify({ schema: 1, id, acknowledgeDataLoss: true, operationId }),
       { mode: 0o600 },
     );
     fs.renameSync(filename + ".tmp", filename);
-    return { queued: true };
+    return {
+      queued: true,
+      operationId,
+      version: catalogue.entries.find((entry) => entry.id === id).version,
+    };
   }
   async function rememberRelease(version) {
     try {

@@ -2,6 +2,10 @@
 
 Web obsahuje Nastavení → Aktualizace a zavíratelné upozornění na dostupnou verzi. Kontrola běží na serveru po startu a každých šest hodin. Selhání internetu neomezuje monitoring. Instalaci spouští přihlášený uživatel; klíč stanice nemá přístup ke správě. Instalace způsobí krátkou přestávku serveru nebo stanice.
 
+Server 0.3.2 zobrazuje po spuštění kontroly, instalace i obnovy průběžný ukazatel. Během instalace kontroluje stav přibližně každé dvě sekundy a při restartu automaticky obnovuje spojení. Po potvrzeném dokončení serverové operace znovu načte aplikaci. U ESP32 čeká na novou telemetrii s očekávanou verzí. Pokud operace selže a obnoví se záloha, ukáže chybu; pokud se výsledek pouze nedaří zjistit, označí jej jako nepotvrzený. Při ztrátě přihlášení vyzve k opětovnému přihlášení. Sledování serveru a ESP32 se uchovává pro danou záložku prohlížeče i při obnovení stránky. Ukazatel neblokuje ostatní obrazovky aplikace.
+
+Nová aktualizační služba poskytuje jednotlivé fáze (záloha, spuštění a kontrola nové verze) a identifikátor operace. Web zvládá i původní službu s čitelným stavovým souborem; v tomto případě ukazuje obecnější průběh. Po doplnění služby pomocí `upgrade-updater.sh` budou dostupné podrobné fáze.
+
 ## Ruční návrat na předchozí verzi
 
 Server 0.3.1 přidává v Nastavení → Aktualizace výběr uložené zálohy serveru a staršího podepsaného firmware ESP32. Samotné zveřejnění nového vydání tuto funkci na běžících zařízeních nezapne; je potřeba nainstalovat nový server a firmware a jednorázově doplnit aktualizační službu maliny.

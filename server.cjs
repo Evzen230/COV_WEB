@@ -10,6 +10,8 @@ const {
 const { createUpdates } = require("./server/updates.cjs");
 const { outsideBand, stabilize } = require("./server/alarm-policy.cjs");
 const { DatabaseSync } = require("node:sqlite");
+const { createDisplays, displaySnapshot } = require("./server/displays.cjs");
+const { networkRequest } = require("./server/network.cjs");
 const KEYS = ["temperature", "level", "ph", "ec", "turbidity", "orp"];
 const SENSOR_NAMES = {
   temperature: "Teplotní čidlo",
@@ -117,6 +119,7 @@ function createApp({
     fleet,
   });
   const updateClients = new Map();
+  const displays = createDisplays({ get, put, now });
   function updatesFor(id = "cov-monitor-01") {
     if (!fleet.has(id)) fail("Neznámé device_id");
     if (!updateClients.has(id)) {
@@ -378,7 +381,38 @@ function createApp({
             200,
             pairing.claim(await body(req), req.socket.remoteAddress),
           );
+        if (p === "/api/v1/display" && m === "GET") {
+          displays.authenticate(req);
+          const station = evaluate();
+          return json(
+            200,
+            displaySnapshot({
+              name: settings.name,
+              station,
+              sensors: fleet.sensorStatus(),
+              values: fleet.readings().values,
+              alarms: db.prepare("SELECT * FROM alarms WHERE active=1").all(),
+              now: now(),
+              staleMinutes: settings.stale,
+            }),
+          );
+        }
         security.authorize(req, p, pairing.authenticate);
+        if (p === "/api/displays" && m === "GET")
+          return json(200, displays.list());
+        if (p === "/api/displays" && m === "POST")
+          return json(201, displays.issue((await body(req)).name));
+        const displayMatch = p.match(/^\/api\/displays\/([a-f0-9]{24})$/);
+        if (displayMatch && m === "DELETE") {
+          displays.revoke(displayMatch[1]);
+          return json(200, { revoked: true });
+        }
+        if (p === "/api/network/status" && m === "GET")
+          return json(200, await networkRequest("status"));
+        if (p === "/api/network/scan" && m === "GET")
+          return json(200, await networkRequest("scan"));
+        if (p === "/api/network/connect" && m === "POST")
+          return json(202, await networkRequest("connect", await body(req)));
         const pairMatch = p.match(
           /^\/api\/stations\/([a-z0-9-]+)\/(pairing|revoke)$/,
         );
@@ -507,6 +541,7 @@ function createApp({
             updates: "docs/UPDATES.md",
             pairing: "docs/PAIRING.md",
             firmware: "docs/FIRMWARE.md",
+            extensions: "docs/EXTENSIONS.md",
           };
           const filename = documents[docMatch[1]];
           if (!filename) fail("Dokument nenalezen", 404);

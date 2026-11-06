@@ -1,4 +1,5 @@
 import { updatesPanel } from "../components/updates.js";
+import { connectionPanels } from "../components/connections.js";
 import { mobileNotificationsPanel } from "../components/mobile-notifications.js";
 import { settings, sensors, serverState } from "../core/state.js";
 import { esc, healthy } from "../core/utils.js";
@@ -181,23 +182,26 @@ export function settingsPage() {
           </form>
         </div>
       </div>
-      <div class="card">
-        <div class="panelhead">
-          <h2>Připojení stanice přes HTTP API</h2>
-          <span class="pill warning">
-            ${healthy() ? "Stanice online" : "Čeká na data"}
-          </span>
-        </div>
-        <div style="padding:22px">
-          <p class="subtitle" style="line-height:1.8">
-            Stanice odesílá POST ${esc(location.origin)}/api/v1/telemetry s
-            Content-Type: application/json. Přidejte jedinečné sample_id. Stačí
-            poslat zapojené veličiny; odpojené čidlo má null. Podrobný postup je
-            na stránce Návody a dokumentace.
-          </p>
-          <pre class="code">
+      <div id="connection-settings" class="connection-settings">
+        ${connectionPanels()}
+        <div class="card">
+          <div class="panelhead">
+            <h2>Připojení stanice přes HTTP API</h2>
+            <span class="pill warning">
+              ${healthy() ? "Stanice online" : "Čeká na data"}
+            </span>
+          </div>
+          <div style="padding:22px">
+            <p class="subtitle" style="line-height:1.8">
+              Stanice odesílá POST ${esc(location.origin)}/api/v1/telemetry s
+              Content-Type: application/json. Přidejte jedinečné sample_id.
+              Stačí poslat zapojené veličiny; odpojené čidlo má null. Podrobný
+              postup je na stránce Návody a dokumentace.
+            </p>
+            <pre class="code">
 ${esc(JSON.stringify({ device_id: "cov-monitor-01", sample_id: "boot-001-1", timestamp: new Date().toISOString(), measurements: { temperature: 18.7, level: 64, ph: 7.2, ec: 842, turbidity: 12.4, orp: 185 } }, null, 2))}</pre>
-          <button class="btn" data-action="backup">↓ Záloha dat JSON</button>
+            <button class="btn" data-action="backup">↓ Záloha dat JSON</button>
+          </div>
         </div>
       </div>
     ` +

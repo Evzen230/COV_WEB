@@ -25,6 +25,8 @@ Nastavení → Aktualizace zobrazuje verze serveru a ESP32, umožňuje kontrolu 
 
 ## Funkce
 
+Rozšíření: servisní LED měřicí stanice, nastavení a obnova Wi-Fi Raspberry Pi a samostatný domácí displej ESP32 + ILI9341. Zapojení, instalaci pomocné síťové služby, vytvoření klíče displeje a přejímací zkoušky popisuje [návod k rozšířením](docs/EXTENSIONS.md). Fyzické zapojení a provoz na skutečném hardware zatím nejsou ověřené.
+
 V aplikaci otevřete **Návody a dokumentace**. Najdete tam tento README, návod k napojení stanice a přehled souborů projektu. Dokumenty se načítají přímo ze zdrojových Markdown souborů a lze je stáhnout.
 
 Přehled šesti veličin, historie, CSV export, alarmy s potvrzením a obnovou, evidence laboratorních rozborů, servisní deník bez jména, provozní prahy, konfigurovatelný objem nádrže, světlý a tmavý režim. Měření a záznamy jsou společné pro všechny prohlížeče a přežijí restart serveru. Lokálně v prohlížeči zůstává jen volba vzhledu.

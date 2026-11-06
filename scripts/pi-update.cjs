@@ -8,13 +8,32 @@ const base = "/opt/cov-monitor",
 const current = base + "/current",
   journal = base + "/transaction.json";
 const historyFile = base + "/rollback-history.json";
+let jobContext = {};
+function identifyJob(request, version) {
+  jobContext = { version };
+  if (
+    typeof request.operationId === "string" &&
+    /^[a-f0-9-]{36}$/.test(request.operationId)
+  )
+    jobContext.operationId = request.operationId;
+}
 function atomicJson(filename, value, mode = 0o600) {
-  fs.rmSync(filename + ".tmp", { force: true });
-  fs.writeFileSync(filename + ".tmp", JSON.stringify(value), {
-    flag: "wx",
+  const temp = filename + ".tmp";
+  fs.rmSync(temp, { force: true });
+  const fd = fs.openSync(
+    temp,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
     mode,
-  });
-  fs.renameSync(filename + ".tmp", filename);
+  );
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value));
+    // systemd uses UMask=0077. Apply the intended mode to the open file, not
+    // its replaceable path in the application's writable queue directory.
+    fs.fchmodSync(fd, mode);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(temp, filename);
 }
 function history() {
   return fs.existsSync(historyFile)
@@ -101,15 +120,12 @@ async function checkHealth(version) {
   }
   throw Error("Verze neprošla kontrolou po spuštění");
 }
-const status = (message) => {
-  const temp = queue + "/status.next";
-  fs.rmSync(temp, { force: true });
-  fs.writeFileSync(
-    temp,
-    JSON.stringify({ message, time: new Date().toISOString() }),
-    { flag: "wx", mode: 0o644 },
+const status = (message, state = "running", phase = "installing") => {
+  atomicJson(
+    queue + "/status.json",
+    { message, time: new Date().toISOString(), state, phase, ...jobContext },
+    0o644,
   );
-  fs.renameSync(temp, queue + "/status.json");
 };
 function read(filename, max) {
   const fd = fs.openSync(
@@ -168,7 +184,7 @@ function restore(t) {
   activateBackup(t);
   fs.rmSync(journal, { force: true });
   run("sync", []);
-  status("Obnovena předchozí verze a záloha dat.");
+  status("Obnovena předchozí verze a záloha dat.", "failed", "restored");
 }
 async function main() {
   if (fs.lstatSync(queue).isSymbolicLink() || fs.realpathSync(queue) !== queue)
@@ -243,7 +259,12 @@ async function main() {
         !fs.existsSync(target.backup + "/auth.json")
       )
         throw Error("Záloha není úplná");
-      status("Obnova serveru " + target.version + " a dat ze zálohy.");
+      identifyJob(request, target.version);
+      status(
+        "Zálohuji současný stav před obnovou serveru " + target.version + ".",
+        "running",
+        "backup",
+      );
       run("systemctl", ["stop", "cov-monitor.service"]);
       try {
         rollbackTransaction = snapshot(fs.realpathSync(current));
@@ -252,7 +273,13 @@ async function main() {
         run("systemctl", ["start", "cov-monitor.service"]);
         throw error;
       }
+      status(
+        "Obnovuji vybranou verzi serveru a odpovídající data…",
+        "running",
+        "restoring",
+      );
       activateBackup(target);
+      status("Ověřuji spuštění obnoveného serveru…", "running", "verifying");
       await checkHealth(target.version);
       fs.rmSync(journal, { force: true });
       rollbackTransaction = null;
@@ -262,6 +289,8 @@ async function main() {
           target.version +
           ", data k " +
           target.created,
+        "succeeded",
+        "complete",
       );
     } catch (error) {
       if (rollbackTransaction) restore(rollbackTransaction);
@@ -269,6 +298,8 @@ async function main() {
         "Obnova selhala: " +
           error.message +
           (rollbackTransaction ? ". Zachován stav před pokusem o obnovu." : ""),
+        "failed",
+        "failed",
       );
     } finally {
       fs.rmSync(queue + "/rollback-request.json", { force: true });
@@ -292,6 +323,7 @@ async function main() {
       !/^\d+\.\d+\.\d+$/.test(item.version)
     )
       throw Error("Neplatná verze");
+    identifyJob(envelope, item.version);
     const previous = fs.realpathSync(current);
     const old = JSON.parse(fs.readFileSync(previous + "/package.json"))
       .version.split(".")
@@ -323,17 +355,34 @@ async function main() {
       !bundle.files["dist/index.html"]
     )
       throw Error("Neúplný balíček");
+    status(
+      "Ověření balíčku dokončeno. Připravuji soubory nové verze…",
+      "running",
+      "unpacking",
+    );
     const release = base + "/releases/" + item.version + "-" + Date.now();
     fs.mkdirSync(release, { recursive: true, mode: 0o755 });
+    fs.chmodSync(release, 0o755);
+    const releaseDirectories = new Set([release]);
     for (const [name, value] of Object.entries(bundle.files)) {
       const target = path.join(release, name);
       fs.mkdirSync(path.dirname(target), { recursive: true });
+      let directory = path.dirname(target);
+      while (
+        directory.startsWith(release + "/") &&
+        !releaseDirectories.has(directory)
+      ) {
+        fs.chmodSync(directory, 0o755);
+        releaseDirectories.add(directory);
+        directory = path.dirname(directory);
+      }
       fs.writeFileSync(target, Buffer.from(value, "base64"), {
         mode: 0o644,
         flag: "wx",
       });
+      fs.chmodSync(target, 0o644);
     }
-    status("Instalace: záloha a restart serveru.");
+    status("Zálohuji data a připravuji restart serveru…", "running", "backup");
     run("systemctl", ["stop", "cov-monitor.service"]);
     try {
       transaction = snapshot(previous);
@@ -344,17 +393,23 @@ async function main() {
     }
     switchTo(release);
     run("sync", []);
+    status("Spouštím novou verzi serveru…", "running", "restarting");
     run("systemctl", ["start", "cov-monitor.service"]);
+    status("Ověřuji, že nová verze správně naběhla…", "running", "verifying");
     await checkHealth(item.version);
     fs.unlinkSync(journal);
     transaction = null;
     run("sync", []);
-    status("Aktualizace dokončena: " + item.version);
+    status("Aktualizace dokončena: " + item.version, "succeeded", "complete");
   } catch (error) {
     if (transaction) {
       restore(transaction);
-      status("Aktualizace selhala; obnovena záloha: " + error.message);
-    } else status("Aktualizace selhala: " + error.message);
+      status(
+        "Aktualizace selhala; obnovena záloha: " + error.message,
+        "failed",
+        "restored",
+      );
+    } else status("Aktualizace selhala: " + error.message, "failed", "failed");
   } finally {
     fs.rmSync(queue + "/request.json", { force: true });
   }

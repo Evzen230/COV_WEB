@@ -1,0 +1,185 @@
+/* Shared rhythm and feedback across every page. Existing theme tokens remain. */
+:root {
+  --panel-space: 22px;
+  --section-gap: 22px;
+}
+.panelbody {
+  padding: var(--panel-space);
+}
+.panelbody > :first-child {
+  margin-top: 0;
+}
+.panelbody > :last-child {
+  margin-bottom: 0;
+}
+.panelbody .formgrid {
+  padding: 18px 0 0;
+}
+.connection-settings > .card + .card {
+  margin-top: var(--section-gap);
+}
+.connection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.connection-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+[data-display-secret] {
+  padding: 16px;
+  margin-top: 18px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+[data-display-secret] textarea {
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+[data-network-message],
+[data-display-message] {
+  line-height: 1.7;
+}
+.panelhead {
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.panelhead h2 {
+  margin: 0;
+  line-height: 1.4;
+}
+.pagehead h1 {
+  line-height: 1.25;
+}
+.pagehead .subtitle {
+  line-height: 1.7;
+}
+.formgrid,
+.settings-fields {
+  align-items: start;
+}
+label {
+  line-height: 1.6;
+}
+label small {
+  display: block;
+  margin-top: 7px;
+  line-height: 1.6;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 14px;
+}
+button,
+a,
+input,
+select,
+textarea,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+:is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+.btn {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+  text-align: center;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn.danger {
+  color: var(--danger);
+}
+.tablewrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+th,
+td {
+  line-height: 1.6;
+}
+.empty {
+  padding: 32px var(--panel-space);
+  line-height: 1.8;
+  text-wrap: pretty;
+}
+.notice {
+  line-height: 1.7;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.notice[data-kind="error"] {
+  color: var(--danger);
+  background: var(--surface);
+  border-color: var(--danger);
+}
+.notice[data-kind="warning"] {
+  color: var(--orange);
+  background: var(--surface);
+  border-color: var(--orange);
+}
+.event {
+  gap: 14px;
+}
+.event > div {
+  flex: 1;
+}
+.event p {
+  line-height: 1.7;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 800px) {
+  :root {
+    --panel-space: 17px;
+    --section-gap: 18px;
+  }
+  .btn,
+  .settings-tabs button,
+  input:not([type="checkbox"]),
+  select {
+    min-height: 44px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .formgrid {
+    padding: var(--panel-space);
+    gap: 16px;
+  }
+  .event {
+    flex-wrap: wrap;
+  }
+  .event > .btn {
+    margin-left: auto;
+  }
+  .connection-row {
+    flex-wrap: wrap;
+  }
+  .pagehead > .actions {
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

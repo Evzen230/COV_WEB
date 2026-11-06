@@ -1,0 +1,26 @@
+[Unit]
+Description=COV local Wi-Fi recovery
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=cov-monitor
+RuntimeDirectory=cov-network
+RuntimeDirectoryMode=0750
+StateDirectory=cov-network
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node /usr/local/lib/cov-monitor/network-service.cjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/NetworkManager/system-connections
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

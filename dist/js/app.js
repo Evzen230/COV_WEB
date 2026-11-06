@@ -1,4 +1,5 @@
 import { refreshUpdates } from "./components/updates.js";
+import { mountConnections } from "./components/connections.js";
 import { mountSettingsTabs } from "./components/settings-tabs.js";
 import { mountMobileNotifications } from "./components/mobile-notifications.js";
 import {
@@ -103,13 +104,14 @@ async function render() {
   refreshUpdates(page === "settings");
   mountChart();
   mountAccessSettings();
+  void mountConnections();
   mountMobileNotifications();
   if (page === "settings") mountSettingsTabs();
   mountPasswordControls();
   if (!connected)
     $("#main").insertAdjacentHTML(
       "afterbegin",
-      '<div class="notice" role="alert">Server není dostupný. Zobrazené údaje mohou být zastaralé; změny nelze uložit.</div>',
+      '<div class="notice" data-kind="error" role="alert">Server není dostupný. Zobrazené údaje mohou být zastaralé; změny nelze uložit.</div>',
     );
 }
 

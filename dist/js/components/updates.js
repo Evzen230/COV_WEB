@@ -1,13 +1,18 @@
 import { serverState } from "../core/state.js";
 import { api } from "../core/api.js";
 import { esc, toast } from "../core/utils.js";
+import { updateTracker, mountUpdateProgress } from "./update-progress.js";
 let dismissed = "";
 let lastCheck = 0;
 let updateStation = "cov-monitor-01";
+if (typeof window !== "undefined")
+  window.addEventListener("cov-update-finished", () => refreshUpdates(true));
 export function updatesPanel() {
   return `<div class="card" id="updates-panel"><div class="panelhead"><h2>Aktualizace</h2><label>ESP stanice<select id="update-station">${(serverState?.stations || [{ id: "cov-monitor-01", name: "Hlavní ESP32" }]).map((station) => `<option value="${esc(station.id)}" ${station.id === updateStation ? "selected" : ""}>${esc(station.name)}</option>`).join("")}</select></label></div><div style="padding:22px" id="updates-content">Načítání verzí…</div></div>`;
 }
 export async function refreshUpdates(force = false) {
+  mountUpdateProgress();
+  if (updateTracker.current()?.phase === "auth") force = true;
   const picker = document.querySelector("#update-station");
   if (picker)
     picker.onchange = () => {
@@ -22,6 +27,7 @@ export async function refreshUpdates(force = false) {
       "/api/updates?device_id=" + encodeURIComponent(updateStation),
     );
     if (requestedStation !== updateStation) return;
+    updateTracker.resume();
     const signature = JSON.stringify([
       s.release?.server.version,
       s.release?.firmware.version,
@@ -59,7 +65,30 @@ export async function refreshUpdates(force = false) {
       };
     for (const button of content.querySelectorAll("[data-update]"))
       button.onclick = async () => {
+        if (updateTracker.active()) return;
         for (const b of content.querySelectorAll("button")) b.disabled = true;
+        let began = false;
+        const begin = (kind, expectedVersion) => {
+          const component = kind.replace("restore-", "");
+          updateTracker.start({
+            component,
+            restoring: kind.startsWith("restore-"),
+            deviceId: component === "server" ? "cov-monitor-01" : updateStation,
+            monitor: ["server", "firmware"].includes(component),
+            expectedVersion,
+            initialVersion:
+              component === "server" ? s.current : s.station?.version,
+            initialSeen: s.station?.seen,
+            initialJobTime: s.job?.time || null,
+            message:
+              kind === "check"
+                ? "Kontroluji dostupná vydání…"
+                : kind === "history"
+                  ? "Načítám a ověřuji podpis staršího vydání…"
+                  : "Stahuji a ověřuji instalační balíček…",
+          });
+          began = true;
+        };
         try {
           const kind = button.dataset.update;
           if (kind.startsWith("restore-")) {
@@ -72,7 +101,15 @@ export async function refreshUpdates(force = false) {
             const selection = content.querySelector(
               `#rollback-${component}`,
             ).value;
-            await api(
+            begin(
+              kind,
+              component === "server"
+                ? s.serverRollbacks.entries.find(
+                    (entry) => entry.id === selection,
+                  )?.version
+                : selection,
+            );
+            const result = await api(
               "/api/updates/rollback?device_id=" +
                 encodeURIComponent(updateStation),
               "POST",
@@ -80,6 +117,7 @@ export async function refreshUpdates(force = false) {
                 ? { kind: component, id: selection, acknowledgeDataLoss: true }
                 : { kind: component, version: selection, acknowledge: true },
             );
+            updateTracker.queued(result);
             toast(
               "Obnova připravena. Po restartu obnovte stránku a případně se přihlaste původními údaji.",
             );
@@ -87,6 +125,7 @@ export async function refreshUpdates(force = false) {
             const version = content
               .querySelector("#rollback-release-version")
               .value.trim();
+            begin(kind);
             await api(
               "/api/updates/history?device_id=" +
                 encodeURIComponent(updateStation),
@@ -94,8 +133,17 @@ export async function refreshUpdates(force = false) {
               { version },
             );
             toast("Podepsané vydání bylo ověřeno a přidáno do výběru.");
+            updateTracker.finish(
+              "Starší vydání bylo ověřeno a přidáno do výběru.",
+            );
           } else {
-            await api(
+            begin(
+              kind,
+              kind === "server"
+                ? s.release?.server.version
+                : s.release?.firmware.version,
+            );
+            const result = await api(
               (kind === "check"
                 ? "/api/updates/check"
                 : "/api/updates/install") +
@@ -104,6 +152,9 @@ export async function refreshUpdates(force = false) {
               "POST",
               kind === "check" ? undefined : { kind },
             );
+            if (kind === "check")
+              updateTracker.finish("Kontrola aktualizací dokončena.");
+            else updateTracker.queued(result);
             toast(
               kind === "check"
                 ? "Kontrola dokončena."
@@ -111,10 +162,17 @@ export async function refreshUpdates(force = false) {
             );
           }
         } catch (e) {
-          toast(e.message, "error");
+          const uncertain =
+            began && updateTracker.current()?.monitor && !e.status;
+          if (began) {
+            if (uncertain) updateTracker.reconnect();
+            else updateTracker.fail(e.message);
+          }
+          if (!uncertain) toast(e.message, "error");
         }
         await refreshUpdates(true);
       };
+    mountUpdateProgress();
   } catch {
     /* Update checks never interrupt monitoring. */
   }

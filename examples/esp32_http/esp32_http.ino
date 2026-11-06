@@ -11,6 +11,7 @@ String WIFI_SSID, WIFI_PASSWORD, SERVER_URL, API_KEY, DEVICE_ID;
 #include "provisioning.h"
 bool validSample = false;
 #include "nano_link.h"
+#include "status_leds.h"
 String bootId;
 String pending;
 uint32_t sequence = 0;
@@ -34,6 +35,7 @@ void maintainCovWifi() {
       pending = "";
       firstSample = true;
     } else {
+      covNetworkFailed = true;
       Serial.println("[WiFi] Disconnected; waiting to reconnect");
       lastWifiAttempt = millis();
     }
@@ -79,20 +81,18 @@ void setup() {
   configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
   nanoLink.setRxBufferSize(2048);
   nanoLink.begin(9600, SERIAL_8N1, 16, -1);
+  beginCovService();
   char id[26];
   snprintf(id, sizeof(id), "%08lx-%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
   bootId = String(id);
 }
 
 void loop() {
-  readNano();
-  reportNano();
   checkFirmwareTrial();
   maintainCovWifi();
   handleCovSetup();
   if (setupActive || API_KEY.isEmpty()) { delay(10); return; }
   rotateCovKey();
-  readNano();
   unsigned long now = millis();
   // Do not submit an old measurement as fresh after a long network outage.
   if (!pending.isEmpty() && now - pendingCreatedAt >= 60000) {
@@ -101,13 +101,14 @@ void loop() {
   }
   // Jedna čekající zpráva v RAM; opakované pokusy mají stejné sample_id a obsah.
   // On boot allow Nano to finish its first sensor conversion before reporting missing data.
-  bool startupReady = nanoSeen || now >= 10000;
+  NanoSnapshot nano = currentNano();
+  bool startupReady = nano.seen || now >= 10000;
   if (pending.isEmpty() && WiFi.status() == WL_CONNECTED && startupReady && (firstSample || now-lastSample >= 60000)) {
     firstSample = false;
-    bool fresh = nanoSeen && millis() - nanoReceivedAt <= 10000;
-    validSample = fresh && (nanoTemperature != -32768 || nanoDistance != -1);
-    String measured = fresh && nanoTemperature != -32768 ? String(nanoTemperature / 100.0f, 2) : "null";
-    String distance = fresh && nanoDistance != -1 ? String(nanoDistance / 10.0f, 1) : "null";
+    bool fresh = nano.seen && millis() - nano.receivedAt <= 10000;
+    validSample = fresh && (nano.temperature != -32768 || nano.distance != -1);
+    String measured = fresh && nano.temperature != -32768 ? String(nano.temperature / 100.0f, 2) : "null";
+    String distance = fresh && nano.distance != -1 ? String(nano.distance / 10.0f, 1) : "null";
     Serial.printf("[Telemetry] device=%s temperature_C=%s distance_cm=%s\n", DEVICE_ID.c_str(), measured.c_str(), distance.c_str());
     pending = "{\"device_id\":\"" + DEVICE_ID + "\",\"sample_id\":\"" + bootId + "-" + String(sequence++) + "\",\"measurements\":{\"temperature\":" + measured + ",\"distance_cm\":" + distance + "},\"rssi\":" + String(WiFi.RSSI()) + "}";
     pending.remove(pending.length() - 1);
@@ -135,13 +136,14 @@ void loop() {
       http.addHeader("X-API-Key", API_KEY);
       int code = http.POST(pending);
       Serial.printf("HTTP %d\n", code);
-      if (code == 200 || code == 201) { pending = ""; if (validSample) confirmFirmware(); }
+      covNetworkFailed = code != 200 && code != 201;
+      if (code == 200 || code == 201) { covServerReached = true; pending = ""; if (validSample) confirmFirmware(); }
       else if (code >= 400 && code < 500 && code != 429) {
         Serial.println(http.getString()); // Chybný vzorek neopakujeme donekonečna.
         pending = "";
       }
       http.end();
-    }
+    } else covNetworkFailed = true;
   }
   if (pending.isEmpty()) pollFirmware(API_KEY.c_str(), DEVICE_ID.c_str());
   delay(20);

@@ -25,8 +25,8 @@ export function alarmsPage() {
                     <div class="event">
                       <span class="eventicon">!</span>
                       <div style="flex:1">
-                        <b>${x.title}</b>
-                        <p>${x.body}</p>
+                        <b>${esc(x.title)}</b>
+                        <p>${esc(x.body)}</p>
                       </div>
                       <button
                         class="btn"

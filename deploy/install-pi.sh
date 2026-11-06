@@ -32,4 +32,5 @@ systemctl enable --now avahi-daemon
 systemctl restart avahi-daemon
 systemctl daemon-reload
 systemctl enable --now cov-monitor.service cov-monitor-update.timer
+bash scripts/install-network.sh
 echo 'Instalace dokončena. Otevřete http://IP-MALINY:4173.'

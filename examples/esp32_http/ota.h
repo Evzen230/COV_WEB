@@ -8,7 +8,7 @@
 #include <Preferences.h>
 
 // Change for each release. Use the same target in the signed release manifest.
-#define FIRMWARE_VERSION "0.3.2"
+#define FIRMWARE_VERSION "0.4.0"
 #define HARDWARE_TARGET "esp32-nano-v1"
 // Defer Arduino's startup confirmation until sensor and server checks pass.
 extern "C" bool verifyRollbackLater(void) { return true; }

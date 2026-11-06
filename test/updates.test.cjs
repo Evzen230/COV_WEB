@@ -91,15 +91,19 @@ test("Signed releases reject tampering, stage verified bytes, preserve state and
     await assert.rejects(updates.stage("server"), /součet/);
     assert.equal(fs.existsSync(path.join(directory, "request.json")), false);
     corrupt = false;
-    await updates.stage("server");
+    const result = await updates.stage("server");
     assert.deepEqual(
       fs.readFileSync(path.join(directory, "server.bundle")),
       bytes,
     );
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(directory, "request.json"))),
-      envelope,
+    const request = JSON.parse(
+      fs.readFileSync(path.join(directory, "request.json")),
     );
+    assert.equal(request.payload, envelope.payload);
+    assert.equal(request.signature, envelope.signature);
+    assert.match(request.operationId, /^[a-f0-9-]{36}$/);
+    assert.equal(result.operationId, request.operationId);
+    assert.equal(updates.status().pending, true);
     await assert.rejects(updates.stage("server"), /čeká/);
   } finally {
     updates.close();
@@ -364,14 +368,22 @@ test("Server rollback requires a published recovery point and acknowledgement; l
       /záloha není dostupná/,
     );
     const download = first.stage("server");
-    await second.rollbackServer({ id, acknowledgeDataLoss: true });
+    const queued = await second.rollbackServer({
+      id,
+      acknowledgeDataLoss: true,
+    });
     finishDownload(bytes);
     await assert.rejects(download, /mezitím/);
     assert.deepEqual(
       JSON.parse(
         fs.readFileSync(path.join(directory, "rollback-request.json")),
       ),
-      { schema: 1, id, acknowledgeDataLoss: true },
+      {
+        schema: 1,
+        id,
+        acknowledgeDataLoss: true,
+        operationId: queued.operationId,
+      },
     );
     assert.equal(fs.existsSync(path.join(directory, "request.json")), false);
     await assert.rejects(

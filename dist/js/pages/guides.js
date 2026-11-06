@@ -5,6 +5,12 @@ import { header } from "../components/dashboard.js";
 
 export const documents = [
   {
+    id: "extensions",
+    icon: "⊞",
+    title: "LED, Wi-Fi maliny a domácí displej",
+    description: "Zapojení servisních LED, obnova připojení a displej ILI9341.",
+  },
+  {
     id: "firmware",
     icon: "⌁",
     title: "Firmware Nano a ESP32",

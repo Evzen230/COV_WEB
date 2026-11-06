@@ -11,7 +11,8 @@
 #endif
 WebServer setupWeb(80);
 DNSServer setupDns;
-bool setupActive = false, mdnsReady = false;
+volatile bool setupActive = false;
+bool mdnsReady = false;
 unsigned long setupStarted = 0, buttonSince = 0;
 String setupToken, setupPassword;
 String hexBytes(const uint8_t* bytes, size_t size) {

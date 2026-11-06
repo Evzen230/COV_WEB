@@ -5,9 +5,18 @@
 HardwareSerial nanoLink(2);
 char nanoFrame[84];
 size_t nanoLength = 0;
-bool nanoReceiving = false, nanoSeen = false;
-unsigned long nanoReceivedAt = 0;
-long nanoTemperature = -32768, nanoDistance = -1;
+bool nanoReceiving = false;
+volatile bool nanoSeen = false;
+volatile unsigned long nanoReceivedAt = 0;
+volatile long nanoTemperature = -32768, nanoDistance = -1;
+portMUX_TYPE nanoMux = portMUX_INITIALIZER_UNLOCKED;
+struct NanoSnapshot { bool seen; unsigned long receivedAt; long temperature; long distance; };
+NanoSnapshot currentNano() {
+  portENTER_CRITICAL(&nanoMux);
+  NanoSnapshot result = {nanoSeen, nanoReceivedAt, nanoTemperature, nanoDistance};
+  portEXIT_CRITICAL(&nanoMux);
+  return result;
+}
 uint32_t nanoBytes = 0, nanoValidFrames = 0, nanoRejectedFrames = 0;
 
 uint16_t nanoCrc16(const char* data) {
@@ -51,10 +60,12 @@ bool decodeNanoFrame() {
   if (!nanoNumber(temp, -32768, 12500, t) ||
       (t != -32768 && t < -5500) ||
       !nanoNumber(distance, -1, 6000, d) || (d != -1 && d < 210)) return false;
+  portENTER_CRITICAL(&nanoMux);
   nanoTemperature = t;
   nanoDistance = d;
   nanoReceivedAt = millis();
   nanoSeen = true;
+  portEXIT_CRITICAL(&nanoMux);
   return true;
 }
 

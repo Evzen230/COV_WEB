@@ -1,5 +1,7 @@
 # Firmware Nano R3 + ESP32
 
+Servisní LED na ESP32, jejich zapojení, priority a volbu očekávaných čidel popisuje [návod k rozšířením](EXTENSIONS.md). Stejný návod obsahuje samostatný domácí displej a obnovu Wi-Fi maliny.
+
 Nano R3 (ATmega328P, 5 V) měří DS18B20 a JSN-SR04T V3.0. ESP32-WROOM-32 přijímá UART a každých 60 sekund posílá data přes Wi-Fi do stávajícího API. Párování přes mobil a servisní tlačítko GPIO27 zůstávají zachované. Jde o zdrojové sketche; na skutečných deskách zatím nebyly ověřeny.
 
 Kompilace byla ověřena pro Nano s Arduino AVR Boards 1.8.8 a pro ESP32 Dev Module s ESP32 Arduino 3.3.11 a ArduinoJson 7.4.3. Kompilace neověřuje fyzické zapojení ani spolehlivost kabelu.

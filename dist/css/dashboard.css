@@ -14,6 +14,61 @@
 .settings-layout {
   margin-bottom: 22px;
 }
+.update-progress {
+  position: sticky;
+  top: 12px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.update-progress > div {
+  flex: 1;
+  min-width: 0;
+}
+.update-progress p {
+  margin: 5px 0 0;
+  line-height: 1.6;
+}
+.update-progress.error {
+  border-left-color: var(--danger);
+}
+.update-progress.unknown,
+.update-progress.auth {
+  border-left-color: var(--orange);
+}
+.update-spinner {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--line);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: update-spin 0.8s linear infinite;
+}
+@keyframes update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-spinner {
+    animation: none;
+  }
+}
+@media (max-width: 560px) {
+  .update-progress {
+    flex-wrap: wrap;
+    padding: 14px;
+  }
+}
 .update-recovery {
   display: grid;
   gap: 14px;

@@ -23,6 +23,7 @@ async function simulate({
   const files = new Map(),
     links = new Map([[base + "/current", base + "/releases/old"]]);
   const dirs = new Set([queue]);
+  const modes = new Map();
   const put = (p, b) => files.set(p, Buffer.from(b));
   put(base + "/releases/old/package.json", '{"version":"0.3.0"}');
   put(data + "/cov.sqlite", "old database");
@@ -57,6 +58,7 @@ async function simulate({
   put(
     queue + "/request.json",
     JSON.stringify({
+      operationId: "64880135-ecf7-4ca3-a75d-cef63a06cb32",
       payload: payload.toString("base64"),
       signature: crypto
         .sign(null, tampered ? Buffer.from("wrong") : payload, privateKey)
@@ -126,7 +128,12 @@ async function simulate({
     existsSync: (p) => files.has(p) || links.has(p) || dirs.has(p),
     lstatSync: (p) => ({ isSymbolicLink: () => links.has(p) }),
     realpathSync: (p) => links.get(p) || p,
-    openSync: (p) => {
+    openSync: (p, flags, mode = 0o666) => {
+      if (flags & fs.constants.O_CREAT) {
+        if (flags & fs.constants.O_EXCL && files.has(p)) throw Error("EEXIST");
+        put(p, "");
+        modes.set(p, mode & ~0o077);
+      }
       if (!files.has(p)) throw Error("missing " + p);
       const fd = nextFd++;
       fds.set(fd, p);
@@ -137,13 +144,17 @@ async function simulate({
       size: files.get(fds.get(fd)).length,
     }),
     closeSync: (fd) => fds.delete(fd),
+    chmodSync: (p, mode) => modes.set(p, mode),
+    fchmodSync: (fd, mode) => modes.set(fds.get(fd), mode),
     readFileSync: (p) => {
       const b = files.get(typeof p === "number" ? fds.get(p) : p);
       if (!b) throw Error("missing " + p);
       return b;
     },
     writeFileSync: (p, b, o) => {
+      if (typeof p === "number") p = fds.get(p);
       if (o?.flag === "wx" && files.has(p)) throw Error("exists");
+      if (!files.has(p)) modes.set(p, (o?.mode ?? 0o666) & ~0o077);
       put(p, b);
     },
     rmSync: (p) => {
@@ -153,7 +164,14 @@ async function simulate({
     unlinkSync: (p) => {
       if (!files.delete(p)) throw Error("missing unlink " + p);
     },
-    mkdirSync: (p) => dirs.add(p),
+    mkdirSync: (p, options) => {
+      let directory = p;
+      while (!dirs.has(directory) && directory !== "/") {
+        dirs.add(directory);
+        modes.set(directory, (options?.mode ?? 0o777) & ~0o077);
+        directory = require("node:path").posix.dirname(directory);
+      }
+    },
     symlinkSync: (target, p) => links.set(p, target),
     renameSync: (a, b) => {
       if (links.has(a)) {
@@ -162,6 +180,8 @@ async function simulate({
       } else {
         put(b, files.get(a));
         files.delete(a);
+        modes.set(b, modes.get(a));
+        modes.delete(a);
       }
     },
     copyFileSync: (a, b) =>
@@ -212,7 +232,7 @@ async function simulate({
     }),
     AbortSignal,
   });
-  return { files, links, calls, base, queue, data };
+  return { files, links, calls, base, queue, data, modes };
 }
 test("Pi installer switches verified release and checks exact health version", async () => {
   const s = await simulate();
@@ -224,6 +244,24 @@ test("Pi installer switches verified release and checks exact health version", a
     JSON.parse(s.files.get(s.queue + "/status.json")).message,
     /dokončena/,
   );
+  const job = JSON.parse(s.files.get(s.queue + "/status.json"));
+  assert.equal(job.state, "succeeded");
+  assert.equal(job.phase, "complete");
+  assert.equal(job.version, "0.4.0");
+  assert.equal(job.operationId, "64880135-ecf7-4ca3-a75d-cef63a06cb32");
+});
+test("Update under systemd UMask=0077 leaves code readable and public status visible while backups stay private", async () => {
+  const s = await simulate();
+  const release = s.links.get(s.base + "/current");
+  for (const directory of [release, release + "/dist"])
+    assert.equal(s.modes.get(directory), 0o755);
+  for (const filename of ["server.cjs", "package.json", "dist/index.html"])
+    assert.equal(s.modes.get(release + "/" + filename), 0o644);
+  assert.equal(s.modes.get(s.queue + "/status.json"), 0o644);
+  assert.equal(s.modes.get(s.queue + "/server-rollback.json"), 0o644);
+  assert.equal(s.modes.get(s.base + "/rollback-history.json"), 0o600);
+  const entry = JSON.parse(s.files.get(s.base + "/rollback-history.json"))[0];
+  assert.equal(s.modes.get(entry.backup), 0o700);
 });
 test("Pi failed health check restores old code, database, WAL and credentials", async () => {
   const s = await simulate({ healthy: false });

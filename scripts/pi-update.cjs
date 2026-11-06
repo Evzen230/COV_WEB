@@ -1,12 +1,106 @@
 // Install this file root-owned outside application releases. Invoked by systemd.
 const fs = require("node:fs");
 const path = require("node:path");
-const { verify, createHash } = require("node:crypto");
+const { verify, createHash, randomUUID } = require("node:crypto");
 const { execFileSync: run } = require("node:child_process");
 const base = "/opt/cov-monitor",
   queue = "/var/lib/cov-monitor/updates";
 const current = base + "/current",
   journal = base + "/transaction.json";
+const historyFile = base + "/rollback-history.json";
+function atomicJson(filename, value, mode = 0o600) {
+  fs.rmSync(filename + ".tmp", { force: true });
+  fs.writeFileSync(filename + ".tmp", JSON.stringify(value), {
+    flag: "wx",
+    mode,
+  });
+  fs.renameSync(filename + ".tmp", filename);
+}
+function history() {
+  return fs.existsSync(historyFile)
+    ? JSON.parse(fs.readFileSync(historyFile))
+    : [];
+}
+function publishHistory() {
+  const entries = history().filter(
+    (entry) =>
+      fs.existsSync(entry.previous + "/package.json") &&
+      fs.existsSync(entry.backup + "/cov.sqlite") &&
+      fs.existsSync(entry.backup + "/auth.json"),
+  );
+  atomicJson(
+    queue + "/server-rollback.json",
+    {
+      schema: 1,
+      entries: entries.map(({ id, version, created }) => ({
+        id,
+        version,
+        created,
+      })),
+    },
+    0o644,
+  );
+}
+function snapshot(previous) {
+  const id = randomUUID(),
+    backup = base + "/backups/" + id;
+  fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
+  for (const name of dataFiles("/var/lib/cov-monitor/data")) {
+    const filename = "/var/lib/cov-monitor/data/" + name;
+    if (!fs.existsSync(filename)) continue;
+    const fd = fs.openSync(
+      filename,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      if (!fs.fstatSync(fd).isFile()) throw Error("Neplatný datový soubor");
+      fs.copyFileSync("/proc/self/fd/" + fd, backup + "/" + name);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+  if (
+    !fs.existsSync(backup + "/cov.sqlite") ||
+    !fs.existsSync(backup + "/auth.json")
+  )
+    throw Error("Záloha databáze nebo přístupu chybí");
+  const version = JSON.parse(
+    fs.readFileSync(previous + "/package.json"),
+  ).version;
+  const entry = {
+    id,
+    version,
+    created: new Date().toISOString(),
+    previous,
+    backup,
+  };
+  run("sync", []);
+  atomicJson(historyFile, [...history(), entry]);
+  run("sync", []);
+  publishHistory();
+  return entry;
+}
+function saveTransaction(transaction) {
+  fs.writeFileSync(journal + ".tmp", JSON.stringify(transaction), {
+    mode: 0o600,
+  });
+  run("sync", []);
+  fs.renameSync(journal + ".tmp", journal);
+  run("sync", []);
+}
+async function checkHealth(version) {
+  for (let i = 0; i < 30; i++) {
+    try {
+      const response = await fetch("http://127.0.0.1:4173/api/health", {
+        signal: AbortSignal.timeout(1000),
+      });
+      const health = await response.json();
+      if (response.ok && health.ok && health.version === version) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw Error("Verze neprošla kontrolou po spuštění");
+}
 const status = (message) => {
   const temp = queue + "/status.next";
   fs.rmSync(temp, { force: true });
@@ -53,7 +147,7 @@ function dataFiles(directory) {
     ]),
   ];
 }
-function restore(t) {
+function activateBackup(t) {
   run("systemctl", ["stop", "cov-monitor.service"]);
   switchTo(t.previous);
   for (const name of new Set([
@@ -69,6 +163,9 @@ function restore(t) {
   }
   run("sync", []);
   run("systemctl", ["start", "cov-monitor.service"]);
+}
+function restore(t) {
+  activateBackup(t);
   fs.rmSync(journal, { force: true });
   run("sync", []);
   status("Obnovena předchozí verze a záloha dat.");
@@ -76,8 +173,107 @@ function restore(t) {
 async function main() {
   if (fs.lstatSync(queue).isSymbolicLink() || fs.realpathSync(queue) !== queue)
     throw Error("Neplatný adresář fronty");
+  publishHistory();
+  const args = process.argv || [];
+  if (args.includes("--list-rollbacks")) {
+    console.log(
+      JSON.stringify(
+        JSON.parse(fs.readFileSync(queue + "/server-rollback.json")),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (args.includes("--queue-rollback")) {
+    if (fs.existsSync(journal))
+      throw Error(
+        "Probíhá obnova rozpracované transakce; vyčkejte na aktualizační službu.",
+      );
+    const id = args[args.indexOf("--queue-rollback") + 1];
+    if (
+      !args.includes("--accept-data-loss") ||
+      !history().some((entry) => entry.id === id)
+    )
+      throw Error("Vyberte existující zálohu a potvrďte --accept-data-loss");
+    if (
+      fs.existsSync(queue + "/request.json") ||
+      fs.existsSync(queue + "/rollback-request.json")
+    )
+      throw Error("Jiná operace již čeká");
+    atomicJson(queue + "/rollback-request.json", {
+      schema: 1,
+      id,
+      acknowledgeDataLoss: true,
+    });
+    console.log("Obnova zařazena. Zpracuje ji cov-monitor-update.service.");
+    return;
+  }
   if (fs.existsSync(journal)) {
     restore(JSON.parse(fs.readFileSync(journal)));
+    fs.rmSync(queue + "/rollback-request.json", { force: true });
+    fs.rmSync(queue + "/request.json", { force: true });
+    return;
+  }
+  if (fs.existsSync(queue + "/rollback-request.json")) {
+    let rollbackTransaction;
+    try {
+      if (fs.existsSync(queue + "/request.json"))
+        throw Error("Nelze současně aktualizovat a obnovovat");
+      const request = JSON.parse(read(queue + "/rollback-request.json", 4096));
+      const target = history().find((entry) => entry.id === request.id);
+      if (
+        request.schema !== 1 ||
+        request.acknowledgeDataLoss !== true ||
+        !target
+      )
+        throw Error("Neplatný požadavek na obnovu");
+      // Paths are taken ONLY from the root-owned catalogue, never from a web request.
+      if (
+        !target.previous.startsWith(base + "/releases/") ||
+        !target.backup.startsWith(base + "/backups/") ||
+        fs.realpathSync(target.previous) !== target.previous ||
+        fs.realpathSync(target.backup) !== target.backup
+      )
+        throw Error("Neplatné umístění zálohy");
+      if (
+        JSON.parse(fs.readFileSync(target.previous + "/package.json"))
+          .version !== target.version ||
+        !fs.existsSync(target.backup + "/cov.sqlite") ||
+        !fs.existsSync(target.backup + "/auth.json")
+      )
+        throw Error("Záloha není úplná");
+      status("Obnova serveru " + target.version + " a dat ze zálohy.");
+      run("systemctl", ["stop", "cov-monitor.service"]);
+      try {
+        rollbackTransaction = snapshot(fs.realpathSync(current));
+        saveTransaction(rollbackTransaction);
+      } catch (error) {
+        run("systemctl", ["start", "cov-monitor.service"]);
+        throw error;
+      }
+      activateBackup(target);
+      await checkHealth(target.version);
+      fs.rmSync(journal, { force: true });
+      rollbackTransaction = null;
+      run("sync", []);
+      status(
+        "Obnova dokončena: server " +
+          target.version +
+          ", data k " +
+          target.created,
+      );
+    } catch (error) {
+      if (rollbackTransaction) restore(rollbackTransaction);
+      status(
+        "Obnova selhala: " +
+          error.message +
+          (rollbackTransaction ? ". Zachován stav před pokusem o obnovu." : ""),
+      );
+    } finally {
+      fs.rmSync(queue + "/rollback-request.json", { force: true });
+      publishHistory();
+    }
     return;
   }
   if (!fs.existsSync(queue + "/request.json")) return;
@@ -139,32 +335,9 @@ async function main() {
     }
     status("Instalace: záloha a restart serveru.");
     run("systemctl", ["stop", "cov-monitor.service"]);
-    const backup = base + "/backups/" + Date.now();
     try {
-      fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
-      // Server is stopped; copy database AND WAL before the new process can migrate data.
-      for (const name of dataFiles("/var/lib/cov-monitor/data"))
-        if (fs.existsSync("/var/lib/cov-monitor/data/" + name)) {
-          const fd = fs.openSync(
-            "/var/lib/cov-monitor/data/" + name,
-            fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-          );
-          try {
-            if (!fs.fstatSync(fd).isFile())
-              throw Error("Neplatný datový soubor");
-            fs.copyFileSync("/proc/self/fd/" + fd, backup + "/" + name);
-          } finally {
-            fs.closeSync(fd);
-          }
-        }
-      transaction = { previous, backup };
-      run("sync", []);
-      fs.writeFileSync(journal + ".tmp", JSON.stringify(transaction), {
-        mode: 0o600,
-      });
-      run("sync", []);
-      fs.renameSync(journal + ".tmp", journal);
-      run("sync", []);
+      transaction = snapshot(previous);
+      saveTransaction(transaction);
     } catch (e) {
       run("systemctl", ["start", "cov-monitor.service"]);
       throw e;
@@ -172,21 +345,7 @@ async function main() {
     switchTo(release);
     run("sync", []);
     run("systemctl", ["start", "cov-monitor.service"]);
-    let healthy = false;
-    for (let i = 0; i < 30; i++) {
-      try {
-        const r = await fetch("http://127.0.0.1:4173/api/health", {
-          signal: AbortSignal.timeout(1000),
-        });
-        const health = await r.json();
-        if (r.ok && health.ok && health.version === item.version) {
-          healthy = true;
-          break;
-        }
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    if (!healthy) throw Error("Nová verze neprošla kontrolou");
+    await checkHealth(item.version);
     fs.unlinkSync(journal);
     transaction = null;
     run("sync", []);

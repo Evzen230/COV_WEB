@@ -14,6 +14,32 @@
 .settings-layout {
   margin-bottom: 22px;
 }
+.update-recovery {
+  display: grid;
+  gap: 14px;
+  margin: 24px 0 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.update-recovery p {
+  margin: 0;
+}
+.update-recovery .btn {
+  justify-self: start;
+}
+.update-recovery .sensor-toggle {
+  align-items: flex-start;
+  line-height: 1.7;
+}
+.update-recovery input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+}
 .sensor-monitoring legend {
   padding: 0 6px;
   font-size: 12px;

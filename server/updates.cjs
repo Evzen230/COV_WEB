@@ -79,6 +79,39 @@ function createUpdates({
 } = {}) {
   let checking, staging;
   const enabled = Boolean(directory && manifestUrl && publicKey);
+  function serverRollbacks() {
+    if (!directory) return { supported: false, entries: [] };
+    try {
+      const catalogue = JSON.parse(
+        fs.readFileSync(path.join(directory, "server-rollback.json"), "utf8"),
+      );
+      if (catalogue.schema !== 1 || !Array.isArray(catalogue.entries))
+        throw Error("Neplatný katalog");
+      return {
+        supported: true,
+        entries: catalogue.entries
+          .filter(
+            (entry) =>
+              typeof entry.id === "string" &&
+              /^[a-f0-9-]{36}$/.test(entry.id) &&
+              semver(entry.version) &&
+              Number.isFinite(Date.parse(entry.created)),
+          )
+          .slice()
+          .reverse(),
+      };
+    } catch {
+      return { supported: false, entries: [] };
+    }
+  }
+  function queueBusy() {
+    return (
+      directory &&
+      ["request.json", "rollback-request.json"].some((name) =>
+        fs.existsSync(path.join(directory, name)),
+      )
+    );
+  }
   const status = () => {
     const release = get("updateRelease", null),
       station = get("stationVersion", null);
@@ -97,6 +130,19 @@ function createUpdates({
       job,
       checked: get("updateChecked", null),
       error: get("updateError", null),
+      serverRollbacks: serverRollbacks(),
+      firmwareRollbacks: get("updateHistory", [])
+        .filter(
+          (entry) =>
+            station &&
+            entry.release.firmware.target === station.target &&
+            newer(station.version, entry.release.firmware.version),
+        )
+        .map((entry) => ({
+          version: entry.release.firmware.version,
+          target: entry.release.firmware.target,
+          checked: entry.checked,
+        })),
       available: Boolean(
         release &&
         (newer(release.server.version, VERSION) ||
@@ -114,6 +160,18 @@ function createUpdates({
       try {
         const envelope = JSON.parse(await fetchBytes(manifestUrl, 256 * 1024));
         const release = decodeManifest(envelope, publicKey);
+        const history = get("updateHistory", []).filter(
+          (entry) =>
+            entry.release.firmware.version !== release.firmware.version ||
+            entry.release.firmware.target !== release.firmware.target,
+        );
+        put(
+          "updateHistory",
+          [
+            { envelope, release, checked: new Date().toISOString() },
+            ...history,
+          ].slice(0, 50),
+        );
         put("updateRelease", release);
         put("updateEnvelope", envelope);
         put("updateError", null);
@@ -132,7 +190,7 @@ function createUpdates({
       checking = null;
     }
   }
-  async function stage(kind) {
+  async function stage(kind, { rollbackVersion, acknowledge = false } = {}) {
     if (!enabled || !["server", "firmware"].includes(kind))
       throw Object.assign(Error("Aktualizace není dostupná."), { status: 400 });
     if (staging)
@@ -142,27 +200,57 @@ function createUpdates({
     staging = true;
     try {
       // Revalidate the persisted signature before every installation.
-      const envelope = get("updateEnvelope", null);
+      if (
+        rollbackVersion &&
+        (kind !== "firmware" ||
+          !acknowledge ||
+          get("stationVersion", {})?.rollback !== true)
+      )
+        throw Error(
+          "Stanice zatím nepodporuje potvrzený návrat firmware. Nejdřív nahrajte firmware s podporou obnovy.",
+        );
+      const envelope = rollbackVersion
+        ? get("updateHistory", []).find(
+            (entry) =>
+              entry.release.firmware.version === rollbackVersion &&
+              entry.release.firmware.target ===
+                get("stationVersion", {})?.target,
+          )?.envelope
+        : get("updateEnvelope", null);
+      if (!envelope)
+        throw Error(
+          "Podepsané vydání této verze není uložené. Nejdřív načtěte jeho manifest.",
+        );
       const release = decodeManifest(envelope, publicKey),
         item = release[kind];
       if (
-        !newer(
-          item.version,
-          kind === "server"
-            ? VERSION
-            : get("stationVersion", {})?.version || "0.0.0",
-        )
+        rollbackVersion
+          ? !newer(get("stationVersion", {})?.version, item.version)
+          : !newer(
+              item.version,
+              kind === "server"
+                ? VERSION
+                : get("stationVersion", {})?.version || "0.0.0",
+            )
       )
-        throw Error("Novější verze není dostupná.");
+        throw Error(
+          rollbackVersion
+            ? "Zvolený firmware není starší než verze stanice."
+            : "Novější verze není dostupná.",
+        );
       if (
         kind === "firmware" &&
         get("stationVersion", {})?.target !== item.target
       )
         throw Error("Stanice nemá kompatibilní OTA firmware.");
       fs.mkdirSync(directory, { recursive: true });
-      if (fs.existsSync(path.join(directory, "request.json")))
+      if (queueBusy())
         throw Error("Aktualizace serveru již čeká na instalaci.");
       const bytes = await fetchBytes(item.url);
+      if (queueBusy())
+        throw Error(
+          "Jiná operace byla mezitím zařazena. Vyčkejte na její dokončení.",
+        );
       if (createHash("sha256").update(bytes).digest("hex") !== item.sha256)
         throw Error("Kontrolní součet nesouhlasí.");
       const filename = kind === "server" ? "server.bundle" : firmwareFilename;
@@ -183,7 +271,12 @@ function createUpdates({
           path.join(directory, "request.tmp"),
           path.join(directory, "request.json"),
         );
-      } else put("firmwareOffer", { ...item, id: randomUUID() });
+      } else
+        put("firmwareOffer", {
+          ...item,
+          id: randomUUID(),
+          rollback: Boolean(rollbackVersion),
+        });
       put("updateError", null);
       return { queued: true, version: item.version };
     } catch (error) {
@@ -192,6 +285,84 @@ function createUpdates({
       throw error;
     } finally {
       staging = false;
+    }
+  }
+  async function rollbackServer({ id, acknowledgeDataLoss } = {}) {
+    if (!directory || acknowledgeDataLoss !== true)
+      throw Object.assign(
+        Error("Potvrďte obnovu databáze a ztrátu novějších dat."),
+        { status: 400 },
+      );
+    const catalogue = serverRollbacks();
+    if (
+      !catalogue.supported ||
+      !catalogue.entries.some((entry) => entry.id === id)
+    )
+      throw Object.assign(
+        Error(
+          "Zvolená záloha není dostupná. Aktualizační služba musí podporovat ruční obnovu.",
+        ),
+        { status: 400 },
+      );
+    if (staging || queueBusy())
+      throw Object.assign(Error("Jiná operace již čeká nebo se připravuje."), {
+        status: 409,
+      });
+    const filename = path.join(directory, "rollback-request.json");
+    fs.writeFileSync(
+      filename + ".tmp",
+      JSON.stringify({ schema: 1, id, acknowledgeDataLoss: true }),
+      { mode: 0o600 },
+    );
+    fs.renameSync(filename + ".tmp", filename);
+    return { queued: true };
+  }
+  async function rememberRelease(version) {
+    try {
+      if (!enabled || !semver(version))
+        throw Object.assign(Error("Zadejte stabilní verzi ve tvaru 0.3.1."), {
+          status: 400,
+        });
+      const match = manifestUrl.match(
+        /^(https:\/\/github\.com\/[^/]+\/[^/]+)\/releases\/latest\/download\/manifest\.json$/,
+      );
+      if (!match)
+        throw Object.assign(
+          Error("Načtení staršího vydání vyžaduje nakonfigurovaný GitHub."),
+          { status: 400 },
+        );
+      const envelope = JSON.parse(
+        await fetchBytes(
+          `${match[1]}/releases/download/v${version}/manifest.json`,
+          256 * 1024,
+        ),
+      );
+      const release = decodeManifest(envelope, publicKey);
+      const station = get("stationVersion", null);
+      if (
+        release.firmware.version !== version ||
+        (station && release.firmware.target !== station.target)
+      )
+        throw Object.assign(
+          Error("Vydání neodpovídá zadané verzi firmware nebo typu stanice."),
+          { status: 400 },
+        );
+      const history = get("updateHistory", []).filter(
+        (entry) =>
+          entry.release.firmware.version !== version ||
+          entry.release.firmware.target !== release.firmware.target,
+      );
+      put(
+        "updateHistory",
+        [
+          { envelope, release, checked: new Date().toISOString() },
+          ...history,
+        ].slice(0, 50),
+      );
+      return status();
+    } catch (error) {
+      error.status ||= 400;
+      throw error;
     }
   }
   const timer = enabled
@@ -206,6 +377,8 @@ function createUpdates({
     status,
     check,
     stage,
+    rollbackServer,
+    rememberRelease,
     firmware: () => get("firmwareOffer", null),
     firmwarePath: () => path.join(directory, firmwareFilename),
     close() {

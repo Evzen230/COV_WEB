@@ -1,4 +1,5 @@
 import { updatesPanel } from "../components/updates.js";
+import { mobileNotificationsPanel } from "../components/mobile-notifications.js";
 import { settings, sensors, serverState } from "../core/state.js";
 import { esc, healthy } from "../core/utils.js";
 import { header } from "../components/dashboard.js";
@@ -82,22 +83,27 @@ export function settingsPage() {
               />
             </label>
             <label>
-              Nedostupnost zařízení (minuty)
+              Vyhlásit výpadek stanice po (minuty)
               <input
                 name="stale"
                 type="number"
-                min="1"
+                min="2"
                 max="120"
                 required
                 value="${settings.stale}"
               />
+              <small>
+                Od 2 minut (2 nepřijaté zprávy při odesílání jednou za minutu).
+                Platí pro všechny stanice; po přijetí aktuálních dat chyba
+                zanikne.
+              </small>
             </label>
             <fieldset class="sensor-monitoring full">
               <legend>Stabilita alarmů</legend>
               <p class="subtitle">
                 Překročení meze musí trvat po celou prodlevu. Návratové pásmo
                 brání přepínání alarmu kolem hranice. Výpadek čidla se hlásí
-                ihned; výpadek stanice používá dobu nedostupnosti výše.
+                ihned; výpadek stanice používá nastavenou dobu výše.
               </p>
               <div class="sensor-rule-bounds">
                 <label>
@@ -197,6 +203,7 @@ ${esc(JSON.stringify({ device_id: "cov-monitor-01", sample_id: "boot-001-1", tim
     ` +
     accessSettings() +
     updatesPanel() +
+    mobileNotificationsPanel() +
     `<div class="card" id="stations-panel"><h2>Pokročilé nastavení</h2><p class="subtitle">Technická konfigurace instalace a rozšíření měření.</p><details class="technical-details"><summary>Připojené stanice a zdroje měření</summary><p class="subtitle">Jedna ČOV může mít více ESP32, například pro vnitřní a venkovní měření. Každé ESP posílá vlastní senzory pod svým ID. Níže určíte, která stanice poskytuje jednotlivé hodnoty pro společný přehled. Rozbory a servisní deník jsou společné.</p><h3>Zdroje hlavního přehledu</h3><div class="formgrid">${[...sensors, { id: "blower", name: "Stav dmychadla" }].map((sensor) => `<label>${sensor.name}<select form="settingsform" name="source_${sensor.id}">${(serverState?.stations || [{ id: "cov-monitor-01", name: "Hlavní ESP32" }]).map((station) => `<option value="${esc(station.id)}" ${(settings.sensorSources?.[sensor.id] || "cov-monitor-01") === station.id ? "selected" : ""}>${esc(station.name)} (${esc(station.id)})</option>`).join("")}</select></label>`).join("")}<button form="settingsform" class="btn primary">Uložit zdroje měření</button></div><div class="station-registry">${(serverState?.stations || []).map((station) => `<form class="formgrid" data-station-rename><input type="hidden" name="stationId" value="${esc(station.id)}"><label>Název ESP stanice<input name="name" value="${esc(station.name)}" required maxlength="60"></label><p><code>${esc(station.id)}</code> · ${station.online ? "Online" : "Čeká na data / nedostupná"}</p><button class="btn">Uložit název</button><button type="button" class="btn" data-pair-station="${esc(station.id)}">Spárovat přes mobil</button><button type="button" class="btn" data-revoke-station="${esc(station.id)}">Zrušit přístup stanice</button>${station.id !== "cov-monitor-01" ? `<button type="button" class="btn danger" data-remove-station="${esc(station.id)}">Odebrat stanici</button>` : ""}</form>`).join("")}</div><h3>Připojit další ESP32</h3><form id="stationform" class="formgrid"><label>Název stanice<input name="name" required maxlength="60" placeholder="Venkovní měření"></label><label>ID stanice<input name="stationId" required maxlength="60" pattern="[a-z0-9][a-z0-9-]{0,59}" placeholder="cov-monitor-02"><small>Malá písmena, číslice a pomlčky. ID musí být jedinečné.</small></label><button class="btn primary">Přidat stanici</button></form></details></div>`
   );
 }

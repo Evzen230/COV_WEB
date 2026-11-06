@@ -11,6 +11,11 @@ async function simulate({
   healthy = true,
   tampered = false,
   interrupted = false,
+  manual = false,
+  acknowledge = true,
+  invalidId = false,
+  unsafePath = false,
+  args = [],
 } = {}) {
   const base = "/opt/cov-monitor",
     queue = "/var/lib/cov-monitor/updates",
@@ -59,6 +64,31 @@ async function simulate({
     }),
   );
   put(queue + "/server.bundle", bundle);
+  if (manual) {
+    const entry = {
+      id: "d327eb3f-566b-4058-bf16-bdf0d56fde21",
+      version: "0.2.0",
+      created: "2026-11-06T08:00:00.000Z",
+      previous: base + "/releases/older",
+      backup: base + "/backups/earlier",
+    };
+    put(entry.previous + "/package.json", '{"version":"0.2.0"}');
+    put(entry.backup + "/cov.sqlite", "earlier database");
+    put(entry.backup + "/cov.sqlite-wal", "earlier wal");
+    put(entry.backup + "/auth.json", "earlier credentials");
+    put(entry.backup + "/cov.sqlite.second.sqlite", "earlier station");
+    if (unsafePath) entry.previous = "/tmp/untrusted";
+    put(base + "/rollback-history.json", JSON.stringify([entry]));
+    put(
+      queue + "/rollback-request.json",
+      JSON.stringify({
+        schema: 1,
+        id: invalidId ? "../../other" : entry.id,
+        acknowledgeDataLoss: acknowledge,
+      }),
+    );
+    files.delete(queue + "/request.json");
+  }
   if (interrupted) {
     for (const name of [
       "cov.sqlite",
@@ -80,6 +110,8 @@ async function simulate({
   }
   const calls = [],
     fds = new Map();
+  if (args.includes("--queue-rollback"))
+    files.delete(queue + "/rollback-request.json");
   let nextFd = 1;
   const fakeFs = {
     constants: fs.constants,
@@ -147,7 +179,7 @@ async function simulate({
     if (
       command === "systemctl" &&
       args[0] === "start" &&
-      !links.get(base + "/current").endsWith("/old")
+      /\/0\.4\.0-/.test(links.get(base + "/current"))
     ) {
       put(data + "/cov.sqlite", "new schema");
       put(data + "/cov.sqlite.second.sqlite", "new station schema");
@@ -165,13 +197,18 @@ async function simulate({
             : require(name),
     Buffer,
     console,
-    process: { exitCode: 0 },
+    process: { exitCode: 0, argv: ["node", "pi-update.cjs", ...args] },
     setTimeout: (callback) => {
       callback();
     },
     fetch: async () => ({
       ok: healthy,
-      json: async () => ({ ok: healthy, version: "0.4.0" }),
+      json: async () => ({
+        ok: healthy,
+        version: JSON.parse(
+          files.get(links.get(base + "/current") + "/package.json"),
+        ).version,
+      }),
     }),
     AbortSignal,
   });
@@ -219,5 +256,98 @@ test("Pi recovers an interrupted installation from persistent transaction", asyn
   const s = await simulate({ interrupted: true });
   assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
   assert.equal(s.files.get(s.data + "/cov.sqlite").toString(), "old database");
+  assert.equal(s.files.has(s.base + "/transaction.json"), false);
+});
+test("Pi publishes recovery points after update without exposing backup paths", async () => {
+  const s = await simulate();
+  const catalogue = JSON.parse(s.files.get(s.queue + "/server-rollback.json"));
+  assert.equal(catalogue.schema, 1);
+  assert.equal(catalogue.entries[0].version, "0.3.0");
+  assert.equal(catalogue.entries[0].backup, undefined);
+  assert.equal(catalogue.entries[0].previous, undefined);
+});
+test("Manual rollback restores selected code, database, station data and credentials; preserves undo snapshot", async () => {
+  const s = await simulate({ manual: true });
+  assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/older");
+  assert.equal(
+    s.files.get(s.data + "/cov.sqlite").toString(),
+    "earlier database",
+  );
+  assert.equal(
+    s.files.get(s.data + "/cov.sqlite.second.sqlite").toString(),
+    "earlier station",
+  );
+  assert.equal(s.files.has(s.data + "/cov.sqlite.second.sqlite-wal"), false);
+  assert.equal(
+    s.files.get(s.data + "/auth.json").toString(),
+    "earlier credentials",
+  );
+  const history = JSON.parse(s.files.get(s.base + "/rollback-history.json"));
+  assert.equal(history.at(-1).version, "0.3.0");
+  assert.equal(
+    s.files.get(history.at(-1).backup + "/cov.sqlite").toString(),
+    "old database",
+  );
+  assert.match(
+    JSON.parse(s.files.get(s.queue + "/status.json")).message,
+    /Obnova dokončena/,
+  );
+  assert.equal(s.files.has(s.base + "/transaction.json"), false);
+  assert.equal(s.files.has(s.queue + "/rollback-request.json"), false);
+});
+test("Manual rollback failed startup restores the complete state before the attempt", async () => {
+  const s = await simulate({ manual: true, healthy: false });
+  assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
+  assert.equal(s.files.get(s.data + "/cov.sqlite").toString(), "old database");
+  assert.equal(
+    s.files.get(s.data + "/cov.sqlite.second.sqlite").toString(),
+    "station database",
+  );
+  assert.equal(
+    s.files.get(s.data + "/auth.json").toString(),
+    "original credentials",
+  );
+  assert.match(
+    JSON.parse(s.files.get(s.queue + "/status.json")).message,
+    /Obnova selhala/,
+  );
+});
+test("Manual rollback requires explicit data-loss acknowledgement and a root-catalogue ID and path", async () => {
+  for (const options of [
+    { acknowledge: false },
+    { invalidId: true },
+    { unsafePath: true },
+  ]) {
+    const s = await simulate({ manual: true, ...options });
+    assert.deepEqual(s.calls, []);
+    assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
+    assert.equal(
+      s.files.get(s.data + "/cov.sqlite").toString(),
+      "old database",
+    );
+  }
+});
+test("Offline CLI queues a selected recovery point without directly restarting the server", async () => {
+  const s = await simulate({
+    manual: true,
+    args: [
+      "--queue-rollback",
+      "d327eb3f-566b-4058-bf16-bdf0d56fde21",
+      "--accept-data-loss",
+    ],
+  });
+  assert.equal(
+    JSON.parse(s.files.get(s.queue + "/rollback-request.json"))
+      .acknowledgeDataLoss,
+    true,
+  );
+  assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
+  assert.deepEqual(s.calls, []);
+});
+test("Interrupted manual rollback restores the pre-operation snapshot and consumes the pending request", async () => {
+  const s = await simulate({ manual: true, interrupted: true });
+  assert.equal(s.links.get(s.base + "/current"), s.base + "/releases/old");
+  assert.equal(s.files.get(s.data + "/cov.sqlite").toString(), "old database");
+  assert.equal(s.files.has(s.queue + "/rollback-request.json"), false);
   assert.equal(s.files.has(s.base + "/transaction.json"), false);
 });

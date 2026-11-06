@@ -1,5 +1,40 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+test("Rollback controls require separate consent and hide firmware restore for unsupported devices", async () => {
+  const { rollbackControls } = await import("../dist/js/components/updates.js");
+  const state = {
+    enabled: true,
+    station: { version: "0.3.2", rollback: true },
+    serverRollbacks: {
+      supported: true,
+      entries: [
+        {
+          id: "d327eb3f-566b-4058-bf16-bdf0d56fde21",
+          version: "0.3.0",
+          created: "2026-11-06T10:00:00Z",
+        },
+      ],
+    },
+    firmwareRollbacks: [{ version: "0.3.1" }],
+  };
+  const html = rollbackControls(state);
+  assert.match(html, /data-update="restore-server" disabled/);
+  assert.match(html, /data-update="restore-firmware" disabled/);
+  assert.match(html, /přístupové údaje/);
+  assert.match(html, /data-rollback-ack="server"/);
+  assert.match(html, /data-rollback-ack="firmware"/);
+  assert.ok(
+    !rollbackControls({ ...state, station: { version: "0.3.1" } }).includes(
+      'data-update="restore-firmware"',
+    ),
+  );
+  assert.ok(
+    !rollbackControls({
+      ...state,
+      serverRollbacks: { supported: false, entries: [] },
+    }).includes('data-update="restore-server"'),
+  );
+});
 test("Moduly stránek zachovají dashboard a formuláře bez původních přepisů", async () => {
   const state = await import("../dist/js/core/state.js");
   state.applyState({

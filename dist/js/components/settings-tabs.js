@@ -11,6 +11,7 @@ export function mountSettingsTabs() {
     ["connection", "Připojení"],
     ["access", "Přístup a API"],
     ["updates", "Aktualizace"],
+    ["notifications", "Oznámení"],
     ["advanced", "Pokročilé"],
   ];
   const nav = document.createElement("div");
@@ -31,7 +32,7 @@ export function mountSettingsTabs() {
     if (field.tagName === "LABEL")
       form
         .querySelector(
-          `[data-settings-panel="${["name", "tankVolume", "stale"].includes(field.querySelector("input")?.name) ? "general" : "alarms"}"]`,
+          `[data-settings-panel="${["name", "tankVolume"].includes(field.querySelector("input")?.name) ? "general" : "alarms"}"]`,
         )
         .append(field);
     if (field.tagName === "FIELDSET")
@@ -42,6 +43,7 @@ export function mountSettingsTabs() {
     ["connection", connection],
     ["access", access],
     ["updates", document.querySelector("#updates-panel")],
+    ["notifications", document.querySelector("#mobile-notifications-panel")],
   ])
     if (element) {
       element.dataset.settingsPanel = id;

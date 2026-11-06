@@ -52,7 +52,7 @@ OTA cíl této varianty je `esp32-nano-v1`. Při tvorbě vydání nastavte `FIRM
 
 ### HTTPS na covmalina
 
-Firmware 0.3.1 má v `ota.h` nastavenou adresu `https://covmalina.local` a veřejný kořenový certifikát Caddy z této maliny. Ověřený SHA-256 otisk CA je `5D:D3:73:FA:D4:4B:77:40:AC:5A:F2:F5:82:66:A4:A2:02:18:D8:86:4F:9B:8D:00:7F:07:78:EA:BA:F6:EC:AF`. Pro jinou malinu je nutné odpovídající nastavení adresy a CA.
+Firmware 0.3.2 má v `ota.h` nastavenou adresu `https://covmalina.local` a veřejný kořenový certifikát Caddy z této maliny. Ověřený SHA-256 otisk CA je `5D:D3:73:FA:D4:4B:77:40:AC:5A:F2:F5:82:66:A4:A2:02:18:D8:86:4F:9B:8D:00:7F:07:78:EA:BA:F6:EC:AF`. Pro jinou malinu je nutné odpovídající nastavení adresy a CA.
 
 Tuto první konfiguraci OTA nahrajte do již spárovaného ESP32 přes USB, v Arduino IDE otevřete `examples/esp32_http/esp32_http.ino`. Zachovejte stávající správnou desku, port a schéma oddílů podporující OTA; volbu mazání celé flash ponechte vypnutou. Tím zůstane zachované párování v NVS. Po nahrání otevřete Serial Monitor na 115200 baud. Přibližně po minutě očekávejte `[OTA] Kontrola pres HTTPS: HTTP 200` a při chybějící nabídce `[OTA] HTTPS overeno; zadna nabidka firmware`. Tyto zprávy potvrzují skutečný požadavek stanice přes ověřené TLS. Samotná změna zobrazené verze na webu potvrzuje jen příjem telemetrie. Pokud se jméno maliny nepřeloží, zkontrolujte mDNS v síti; pokud selže certifikát, ověřte také synchronizaci času ESP32 přes NTP.
 
@@ -90,3 +90,7 @@ Pokud ESP32 vypisuje platné hodnoty a web je nezobrazuje, ověřte zdroj velič
 Před prvním odesláním po restartu čeká ESP32 na první platný rámec z Nana, nejvýše 10 sekund. Pokud žádný nepřijde, začne hlásit chybějící čidla. Řádek `[Telemetry]` vypisuje ID stanice a hodnoty připravené pro konkrétní nový vzorek; následné `HTTP 201` potvrzuje jeho uložení. Web se obnovuje přibližně každých 5 sekund. Pozdější chybné měření se záměrně zobrazuje jako neznámé, nikoli jako stará platná hodnota.
 
 Podklady: [JSN-SR04T V3.0 – dokumentace modulu](https://www.laskakit.cz/user/related_files/jsn-sr04t-3_0-2.pdf), [ESP32 Arduino UART](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/serial.html).
+
+## Ruční návrat firmware
+
+Verze 0.3.2 hlásí `ota_rollback: true` a přijímá výslovně potvrzený návrat na starší kompatibilní obraz od autentizovaného serveru přes ověřené HTTPS. Bez označení obnovy nižší verzi dál odmítá. Server ověřuje podpis původního vydání a SHA-256. Postup a omezení popisuje [návod k aktualizacím](UPDATES.md#návrat-esp32). Nahrání této změny na GitHub samo běžící ESP neaktualizuje.

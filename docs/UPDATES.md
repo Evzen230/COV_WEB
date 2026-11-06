@@ -2,6 +2,59 @@
 
 Web obsahuje Nastavení → Aktualizace a zavíratelné upozornění na dostupnou verzi. Kontrola běží na serveru po startu a každých šest hodin. Selhání internetu neomezuje monitoring. Instalaci spouští přihlášený uživatel; klíč stanice nemá přístup ke správě. Instalace způsobí krátkou přestávku serveru nebo stanice.
 
+## Ruční návrat na předchozí verzi
+
+Server 0.3.1 přidává v Nastavení → Aktualizace výběr uložené zálohy serveru a staršího podepsaného firmware ESP32. Samotné zveřejnění nového vydání tuto funkci na běžících zařízeních nezapne; je potřeba nainstalovat nový server a firmware a jednorázově doplnit aktualizační službu maliny.
+
+### Nejdřív doplnění služby na již běžící malině
+
+Aktualizační služba je úmyslně uložená mimo aktualizovatelné vydání a výměna webové aplikace ji nepřepisuje. Přeneste na malinu aktualizované soubory `scripts/pi-update.cjs` a `scripts/upgrade-updater.sh` do stejné složky z důvěryhodné kopie tohoto projektu. Potom spusťte například:
+
+```sh
+sudo bash /cesta/k/projektu/scripts/upgrade-updater.sh
+```
+
+Příkaz aktualizuje službu, zveřejní její schopnost obnovy pro web a znovu zapne časovač. Monitoring nerestartuje. Pokud služba zrovna provádí instalaci nebo má rozpracovanou transakci, úpravu odmítne. Pro nové instalace tento krok nepotřebujete, instalátor už kopíruje aktuální službu.
+
+**Tento krok proveďte před první další aktualizací serveru**, aby se při ní vytvořil návratový bod současné instalace. Staré zálohy pořízené původní službou bez katalogu se automaticky nenabízejí, protože u nich není spolehlivě doložené, ke kterému programu patří.
+
+### Návrat serveru ve webu
+
+1. V Nastavení → Aktualizace najděte Vrátit server na uloženou verzi.
+2. Vyberte verzi a datum zálohy. Seznam obsahuje jen místní programy s odpovídající zálohou databáze a přístupů; není to libovolný seznam vydání na GitHubu.
+3. Potvrďte, že rozumíte obnově databáze, nastavení a přístupových údajů k uvedenému datu. **Měření, párování a změny vytvořené po této záloze se při návratu ztratí.** Přihlášení může vyžadovat původní heslo; stanice spárované až později může být nutné znovu spárovat.
+4. Spusťte obnovu. Služba nejdřív uloží současný stav do dalšího návratového bodu, potom obnoví vybraný program i všechna odpovídající data a zkontroluje spuštěnou verzi.
+5. Po restartu obnovte stránku. Pokud zvolený program nenaběhne, služba automaticky obnoví stav před pokusem o návrat.
+
+Katalog je uložený pod rootem v `/opt/cov-monitor/rollback-history.json`; web zná pouze ID, verzi a datum. Cesty k programu a záloze zadává výhradně služba podle tohoto katalogu, nikoli požadavek z prohlížeče. Zálohy zůstávají v `/opt/cov-monitor/backups/`. Automatická kontrola nových vydání je dál pouze informativní, po návratu sama nic nenainstaluje.
+
+### Obnova, když se web neotevře
+
+Přes terminál maliny vypište dostupné návratové body:
+
+```sh
+sudo /usr/bin/node /usr/local/lib/cov-monitor/pi-update.cjs --list-rollbacks
+```
+
+Ze seznamu vyberte ID požadované zálohy. Následující příkaz nahraďte skutečným ID; potvrzuje také ztrátu novějších dat:
+
+```sh
+sudo /usr/bin/node /usr/local/lib/cov-monitor/pi-update.cjs --queue-rollback ID_ZALOHY --accept-data-loss
+sudo systemctl start cov-monitor-update.service
+```
+
+Příkaz jen zařadí požadavek; vlastní obnovu provádí stejná služba jako při použití webu. Nepouštějte ručně druhou instalaci souběžně se službou. Výsledek najdete také v `journalctl -u cov-monitor-update.service` a ve webu po jeho obnovení.
+
+### Návrat ESP32
+
+Stanice nejdřív potřebuje firmware **0.3.2**, který hlásí podporu ručního návratu v telemetrii. Z již funkčního 0.3.1 s HTTPS jej lze nainstalovat běžnou OTA aktualizací. Starší běžící firmware pokus o návrat na nižší číslo verze odmítá; web proto u něj tlačítko obnovy nenabízí.
+
+V nastavení vyberte požadovanou ESP stanici. Nabídka obsahuje dříve zjištěná a ověřená vydání odpovídající jejímu hardwaru. Pokud verze chybí, zadejte například `0.3.1` do Načíst podepsané vydání firmware z GitHubu. Server stáhne `manifest.json` z tagu `v0.3.1` v nakonfigurovaném repozitáři a ověří podpis původním klíčem. Používá se konvence tagu `v` + verze firmware; běžná aktualizace přes `latest` zůstává beze změny.
+
+Potom vyberte verzi, potvrďte restart a omezení staršího firmware a spusťte obnovu. Server znovu ověří podpis, typ stanice a SHA-256 obrazu. Povel pro nižší verzi je výslovně označený a ESP32 ho přijme jen přes své ověřené HTTPS spojení. Identifikátor pokusu stále brání nekonečnému opakování neúspěšného obrazu. NVS se nemaže; kompatibilitu nastavení a funkce konkrétní starší verze ověřte předem.
+
+Po návratu například na 0.3.1 stanice přestane hlásit podporu dalších ručních návratů, ale dál umí běžnou aktualizaci na novější verzi. Obnova na dálku vyžaduje dostupnou Wi-Fi a fungující OTA; při úplně nefunkční stanici zůstává přístup přes USB a automatický návrat bootloaderu při selhání prvního startu.
+
 ## Když už malina a ESP32 fungují, ale kontrola aktualizace selhává
 
 Pokud web ukazuje server i stanici 0.3.0 a „Stažení aktualizace selhalo“, nejdřív ověřte [vydání na GitHubu](https://github.com/Evzen230/COV_WEB/releases). Zdrojové soubory v záložce Code samy aktualizaci netvoří. Malina hledá zveřejněné stabilní vydání s přílohou `manifest.json`.

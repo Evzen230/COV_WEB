@@ -1,6 +1,6 @@
 {
   "name": "cov-monitor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Domácí monitoring ČOV s HTTP API a SQLite",
   "engines": {

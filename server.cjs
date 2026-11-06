@@ -59,6 +59,7 @@ function createApp({
   dbPath = process.env.DB_PATH || path.join(__dirname, "data", "cov.sqlite"),
   now = Date.now,
   security,
+  notificationFetch = fetch,
 } = {}) {
   const accessConfig = security ? null : loadCredentials();
   if (dbPath !== ":memory:")
@@ -94,6 +95,13 @@ function createApp({
   };
   delete settings.interval;
   put("settings", settings);
+  const notifications =
+    require("./server/notifications.cjs").createNotifications({
+      get,
+      put,
+      now,
+      fetcher: notificationFetch,
+    });
   const fleet = require("./server/stations.cjs").createStations({
     db,
     dbPath,
@@ -243,6 +251,11 @@ function createApp({
           a.id,
         );
         event("Obnoveno: " + a.title);
+        notifications.enqueue(
+          "Obnoveno: " + a.title,
+          settings.name + "\nPorucha již není aktivní.",
+          true,
+        );
       }
     for (let [id, title, body] of conditions) {
       let old = db.prepare("SELECT * FROM alarms WHERE id=?").get(id);
@@ -251,6 +264,7 @@ function createApp({
           "INSERT OR REPLACE INTO alarms VALUES(?,?,?,?,?,?,NULL)",
         ).run(id, title, body, 1, 0, now());
         event("Alarm: " + title);
+        notifications.enqueue("Alarm: " + title, settings.name + "\n" + body);
       } else
         db.prepare("UPDATE alarms SET title=?,body=? WHERE id=?").run(
           title,
@@ -273,6 +287,7 @@ function createApp({
   const timer = setInterval(() => {
     try {
       evaluate();
+      void notifications.tick();
     } catch (e) {
       console.error(e.message);
     }
@@ -434,6 +449,29 @@ function createApp({
           return json(200, await updates.check());
         if (m === "POST" && p === "/api/updates/install")
           return json(202, await updates.stage((await body(req)).kind));
+        if (m === "POST" && p === "/api/updates/rollback") {
+          const request = await body(req);
+          if (request.kind === "server")
+            return json(202, await updates.rollbackServer(request));
+          if (request.kind !== "firmware") fail("Neplatný typ obnovy");
+          if (
+            typeof request.version !== "string" ||
+            !/^\d+\.\d+\.\d+$/.test(request.version)
+          )
+            fail("Vyberte verzi firmware pro obnovu");
+          return json(
+            202,
+            await updates.stage("firmware", {
+              rollbackVersion: request.version,
+              acknowledge: request.acknowledge === true,
+            }),
+          );
+        }
+        if (m === "POST" && p === "/api/updates/history")
+          return json(
+            200,
+            await updates.rememberRelease((await body(req)).version),
+          );
         if (m === "GET" && p === "/api/v1/device/update") {
           const offer = updates.firmware();
           return json(200, {
@@ -443,6 +481,7 @@ function createApp({
                   sha256: offer.sha256,
                   target: offer.target,
                   id: offer.id,
+                  rollback: offer.rollback === true,
                 }
               : null,
           });
@@ -502,6 +541,26 @@ function createApp({
           put("preferences", { dark: input.dark });
           return json(200, { dark: input.dark });
         }
+        if (p === "/api/notifications" && m === "GET")
+          return json(200, notifications.view());
+        if (p === "/api/notifications" && m === "PUT")
+          return json(200, notifications.configure(await body(req)));
+        if (p === "/api/notifications/test" && m === "POST") {
+          await body(req);
+          if (
+            !notifications.enqueue(
+              "ČOV Monitor – test",
+              settings.name +
+                "\nTest mobilních oznámení. Pokud vidíte tuto zprávu v telefonu, připojení funguje.",
+              true,
+            )
+          )
+            fail(
+              "Nejprve zapněte a uložte oznámení, případně vyčkejte na uvolnění fronty.",
+            );
+          await notifications.tick();
+          return json(200, notifications.view());
+        }
         if (m === "GET" && p === "/api/state") return json(200, state());
         if (m === "GET" && p === "/api/backup")
           return json(200, {
@@ -525,6 +584,11 @@ function createApp({
               !["esp32-ds18b20-v1", "esp32-nano-v1"].includes(b.hardware)
             )
               fail("Neplatná verze stanice");
+            if (
+              b.ota_rollback !== undefined &&
+              typeof b.ota_rollback !== "boolean"
+            )
+              fail("Neplatná schopnost OTA obnovy");
             put(
               b.device_id === "cov-monitor-01"
                 ? "stationVersion"
@@ -532,6 +596,7 @@ function createApp({
               {
                 version: b.firmware_version,
                 target: b.hardware,
+                rollback: b.ota_rollback === true,
                 seen: new Date(now()).toISOString(),
               },
             );
@@ -725,7 +790,7 @@ function createApp({
             ["tempMin", -55, 125],
             ["tempMax", -55, 125],
             ["levelMax", 1, 100],
-            ["stale", 1, 120],
+            ["stale", 2, 120],
             ["tankVolume", 1, 1000000],
             ["alarmDelaySeconds", 0, 3600],
             ["tempHysteresis", 0, 20],
@@ -877,6 +942,7 @@ function createApp({
     db,
     evaluate,
     close() {
+      notifications.close();
       for (const client of updateClients.values()) client.close();
       clearInterval(timer);
       server.close();

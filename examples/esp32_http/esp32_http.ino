@@ -119,7 +119,7 @@ void loop() {
       strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &utc);
       pending += String(",\"timestamp\":\"") + timestamp + "\"";
     }
-    pending += String(",\"firmware_version\":\"") + FIRMWARE_VERSION + "\",\"hardware\":\"" + HARDWARE_TARGET + "\"}";
+    pending += String(",\"firmware_version\":\"") + FIRMWARE_VERSION + "\",\"hardware\":\"" + HARDWARE_TARGET + "\",\"ota_rollback\":true}";
     // Until NTP sync, the server uses arrival time. No persistent offline archive.
     pendingCreatedAt = now;
     lastSample = now;

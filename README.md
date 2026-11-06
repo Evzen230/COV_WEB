@@ -35,7 +35,7 @@ Aplikace přijímá data pouze přes HTTP API. Vestavěný simulátor byl odstra
 
 Nastavení sledovaných sond, provozních mezí a ověření poruch popisuje [návod k alarmům](docs/ALARMS.md). Ve webu je pod Návody a dokumentace → Nastavení alarmů a také odkazem přímo v nastavení senzorů.
 
-ESP32 odesílá `POST /api/v1/telemetry` s JSON zprávou. Stačí jedno zapojené čidlo. Požadavek potřebuje hlavičku X-API-Key nebo Authorization: Bearer s klíčem stanice. Jedinečné sample_id zabraňuje duplicitám při opakování zpráv. Chybné nebo chybějící měření se ukládá jako null. Backend vyhodnocuje dostupnost a alarmy i při zavřeném webu. Notifikace mimo aplikaci zatím nejsou součástí.
+ESP32 odesílá `POST /api/v1/telemetry` s JSON zprávou. Stačí jedno zapojené čidlo. Požadavek potřebuje hlavičku X-API-Key nebo Authorization: Bearer s klíčem stanice. Jedinečné sample_id zabraňuje duplicitám při opakování zpráv. Chybné nebo chybějící měření se ukládá jako null. Backend vyhodnocuje dostupnost a alarmy i při zavřeném webu. Mobilní oznámení přes ntfy lze zapnout v Nastavení → Oznámení. Alarmy i obnovu pak telefon oznámí také při zavřeném webu; postup najdete v [návodu k oznámením](docs/NOTIFICATIONS.md).
 
 Podrobný formát, síťové spuštění, zálohování a plán instalace: [docs/API.md](docs/API.md). Testovací odeslání: `node examples/send-sample.mjs`. Firmware pro Nano R3 (DS18B20 + JSN-SR04T V3) a ESP32 bránu včetně pětižilového zapojení a kalibrace hladiny: [docs/FIRMWARE.md](docs/FIRMWARE.md). Párování přes mobil zůstává zachované.
 
@@ -49,4 +49,4 @@ Podrobný formát, síťové spuštění, zálohování a plán instalace: [docs
 
 Pro automatické formátování zdrojů lze jednorázově spustit `npm install` a potom `npm run format`. Prettier je pouze vývojová závislost; pro spuštění aplikace potřeba není.
 
-Data v data/ se neodesílají do externí služby. Zálohujte složku při vypnutém serveru nebo použijte JSON export (bez automatického importu). Původní data z prohlížeče se automaticky nemigrují. Více informací a omezení jsou v dokumentaci API.
+Při vypnutých mobilních oznámeních se data z data/ neodesílají do notifikační služby. Zapnutá oznámení předávají službě ntfy název ČOV a text alarmu. Zálohujte složku při vypnutém serveru nebo použijte JSON export (bez automatického importu). Původní data z prohlížeče se automaticky nemigrují. Více informací a omezení jsou v dokumentaci API.

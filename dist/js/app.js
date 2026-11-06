@@ -1,5 +1,6 @@
 import { refreshUpdates } from "./components/updates.js";
 import { mountSettingsTabs } from "./components/settings-tabs.js";
+import { mountMobileNotifications } from "./components/mobile-notifications.js";
 import {
   mountPasswordControls,
   bindValidation,
@@ -27,7 +28,6 @@ import { labsPage } from "./pages/labs.js";
 import { servicePage } from "./pages/service.js";
 import { settingsPage } from "./pages/settings.js";
 import { guidesPage } from "./pages/guides.js";
-
 
 const navigation = [
   ["overview", "◫", "Přehled", overview],
@@ -103,6 +103,7 @@ async function render() {
   refreshUpdates(page === "settings");
   mountChart();
   mountAccessSettings();
+  mountMobileNotifications();
   if (page === "settings") mountSettingsTabs();
   mountPasswordControls();
   if (!connected)

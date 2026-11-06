@@ -8,7 +8,7 @@
 #include <Preferences.h>
 
 // Change for each release. Use the same target in the signed release manifest.
-#define FIRMWARE_VERSION "0.3.1"
+#define FIRMWARE_VERSION "0.3.2"
 #define HARDWARE_TARGET "esp32-nano-v1"
 // Defer Arduino's startup confirmation until sensor and server checks pass.
 extern "C" bool verifyRollbackLater(void) { return true; }
@@ -75,7 +75,9 @@ void pollFirmware(const char* apiKey, const char* deviceId) {
   // Refuse old offers after a newer firmware has been installed.
   int a,b,c,x,y,z;
   if (sscanf(version.c_str(), "%d.%d.%d", &a,&b,&c) != 3 || sscanf(FIRMWARE_VERSION, "%d.%d.%d", &x,&y,&z) != 3) return;
-  if (a < x || (a == x && b < y) || (a == x && b == y && c <= z)) return;
+  bool older = a < x || (a == x && b < y) || (a == x && b == y && c < z);
+  bool rollback = doc["firmware"]["rollback"] == true;
+  if (older && !rollback) return; // Only an explicit authenticated server offer permits a downgrade.
   if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/firmware?device_id=" + String(deviceId))) return;
   http.addHeader("X-API-Key", apiKey);
   if (http.GET() != 200) { http.end(); return; }

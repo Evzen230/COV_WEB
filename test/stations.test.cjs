@@ -30,6 +30,40 @@ async function start(options) {
   };
 }
 
+test("Station outage timeout is configurable from two minutes and clears on recovery", async () => {
+  let time = Date.now();
+  const { app, request } = await start({
+    dbPath: ":memory:",
+    security: require("./security-helper.cjs"),
+    now: () => time,
+  });
+  try {
+    const settings = (await request("/api/state")).data.settings;
+    const save = (stale) => request("/api/settings", "PUT", { ...settings, stale });
+    assert.equal((await save(1)).status, 400);
+    assert.equal((await save(121)).status, 400);
+    assert.equal((await save(2)).status, 200);
+    const send = (sample_id) => request("/api/v1/telemetry", "POST", {
+      device_id: "cov-monitor-01",
+      sample_id,
+      measurements: { temperature: 20, level: 10 },
+    });
+    assert.equal((await send("before-outage")).status, 201);
+    time += 119999;
+    assert.ok(!(await request("/api/state")).data.alarms.some((a) => a.id === "offline"));
+    time += 2;
+    assert.ok((await request("/api/state")).data.alarms.some((a) => a.id === "offline"));
+    assert.equal((await save(5)).status, 200);
+    assert.ok(!(await request("/api/state")).data.alarms.some((a) => a.id === "offline"));
+    time += 180000;
+    assert.ok((await request("/api/state")).data.alarms.some((a) => a.id === "offline"));
+    assert.equal((await send("after-outage")).status, 201);
+    assert.ok(!(await request("/api/state")).data.alarms.some((a) => a.id === "offline"));
+  } finally {
+    app.close();
+  }
+});
+
 test("Multiple ESPs combine assigned sensors in one plant, with independent freshness and shared records", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cov-stations-"));
   let time = Date.now();

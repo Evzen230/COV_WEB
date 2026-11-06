@@ -18,6 +18,35 @@ unsigned long lastSample = 0;
 unsigned long lastAttempt = 0;
 unsigned long pendingCreatedAt = 0;
 bool firstSample = true;
+unsigned long lastWifiAttempt = 0;
+bool wifiWasConnected = false;
+
+void maintainCovWifi() {
+  if (setupActive || WIFI_SSID.isEmpty()) return;
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected != wifiWasConnected) {
+    wifiWasConnected = connected;
+    // Recreate mDNS on the new network interface, including after DHCP recovery.
+    if (mdnsReady) MDNS.end();
+    mdnsReady = false;
+    if (connected) {
+      Serial.println("[WiFi] Connected; resuming telemetry");
+      pending = "";
+      firstSample = true;
+    } else {
+      Serial.println("[WiFi] Disconnected; waiting to reconnect");
+      lastWifiAttempt = millis();
+    }
+  }
+  unsigned long now = millis();
+  if (!connected && now - lastWifiAttempt >= 30000UL) {
+    lastWifiAttempt = now;
+    Serial.println("[WiFi] Retrying saved network");
+    // Keep saved credentials and allow a slow router 30 seconds per attempt.
+    WiFi.disconnect(false, false);
+    WiFi.begin(WIFI_SSID.c_str(), WIFI_PASSWORD.c_str());
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -46,6 +75,7 @@ void setup() {
   if (!setupActive) WiFi.mode(WIFI_STA);
   if (!WIFI_SSID.isEmpty()) WiFi.begin(WIFI_SSID.c_str(), WIFI_PASSWORD.c_str());
   WiFi.setAutoReconnect(true);
+  lastWifiAttempt = millis();
   configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
   nanoLink.setRxBufferSize(2048);
   nanoLink.begin(9600, SERIAL_8N1, 16, -1);
@@ -58,6 +88,7 @@ void loop() {
   readNano();
   reportNano();
   checkFirmwareTrial();
+  maintainCovWifi();
   handleCovSetup();
   if (setupActive || API_KEY.isEmpty()) { delay(10); return; }
   rotateCovKey();

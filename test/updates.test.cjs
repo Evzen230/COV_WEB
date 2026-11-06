@@ -8,9 +8,35 @@ const {
   createUpdates,
   decodeManifest,
   newer,
+  download,
 } = require("../server/updates.cjs");
 const { createApp } = require("../server.cjs");
 const { createSecurity, credentials } = require("../server/security.cjs");
+test("Missing GitHub manifest explains release setup; other HTTP failures remain errors", async () => {
+  const url =
+    "https://github.com/Evzen230/COV_WEB/releases/latest/download/manifest.json";
+  const missing = async () => ({ ok: false, status: 404 });
+  await assert.rejects(
+    download(url, 1000, missing),
+    (error) =>
+      error.httpStatus === 404 && /vydání.*manifest.json/.test(error.message),
+  );
+  await assert.rejects(
+    download("https://example.org/firmware.bin", 1000, missing),
+    (error) => error.httpStatus === 404 && !/vydání/.test(error.message),
+  );
+  await assert.rejects(
+    download(url, 1000, async () => ({ ok: false, status: 403 })),
+    /HTTP 403/,
+  );
+  await assert.rejects(
+    download(url, 1000, async () => ({
+      ok: true,
+      url: "http://example.org/manifest.json",
+    })),
+    /nezabezpečené/,
+  );
+});
 test("Signed releases reject tampering, stage verified bytes, preserve state and reject downgrade", async () => {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const bytes = Buffer.from("test bundle");

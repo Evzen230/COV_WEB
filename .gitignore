@@ -1,3 +1,4 @@
 outputs/
 node_modules/
 data/
+examples/**/build/

@@ -50,6 +50,12 @@ JSN musí být v režimu TRIG/ECHO (výchozí pulzní režim), nikoli autonomní
 
 OTA cíl této varianty je `esp32-nano-v1`. Při tvorbě vydání nastavte `FIRMWARE_TARGET=esp32-nano-v1`; binární soubor musí být sestavený z této varianty. Starý cíl `esp32-ds18b20-v1` zůstává serverem podporovaný. OTA vyžaduje existující HTTPS konfiguraci v `ota.h`.
 
+### HTTPS na covmalina
+
+Firmware 0.3.1 má v `ota.h` nastavenou adresu `https://covmalina.local` a veřejný kořenový certifikát Caddy z této maliny. Ověřený SHA-256 otisk CA je `5D:D3:73:FA:D4:4B:77:40:AC:5A:F2:F5:82:66:A4:A2:02:18:D8:86:4F:9B:8D:00:7F:07:78:EA:BA:F6:EC:AF`. Pro jinou malinu je nutné odpovídající nastavení adresy a CA.
+
+Tuto první konfiguraci OTA nahrajte do již spárovaného ESP32 přes USB, v Arduino IDE otevřete `examples/esp32_http/esp32_http.ino`. Zachovejte stávající správnou desku, port a schéma oddílů podporující OTA; volbu mazání celé flash ponechte vypnutou. Tím zůstane zachované párování v NVS. Po nahrání otevřete Serial Monitor na 115200 baud. Přibližně po minutě očekávejte `[OTA] Kontrola pres HTTPS: HTTP 200` a při chybějící nabídce `[OTA] HTTPS overeno; zadna nabidka firmware`. Tyto zprávy potvrzují skutečný požadavek stanice přes ověřené TLS. Samotná změna zobrazené verze na webu potvrzuje jen příjem telemetrie. Pokud se jméno maliny nepřeloží, zkontrolujte mDNS v síti; pokud selže certifikát, ověřte také synchronizaci času ESP32 přes NTP.
+
 ## Kalibrace na webu
 
 V **Nastavení → Alarmy a senzory → Kalibrace ultrazvukové hladiny** zadejte pro příslušné ESP vzdálenost od čela čidla k hladině při prázdné nádrži (0 %) a plné nádrži (100 %). Prázdná musí být větší než plná. Dokud obě hodnoty chybí, server ukládá vzdálenost, ale hladina je `null`. Poslední přijatou vzdálenost najdete ve stejném formuláři; jde o poslední vzorek, ne živé měření.
@@ -57,6 +63,10 @@ V **Nastavení → Alarmy a senzory → Kalibrace ultrazvukové hladiny** zadejt
 Výpočet: `100 × (prázdná − vzdálenost) / (prázdná − plná)`, omezený na 0–100 %. Jde o procento výšky hladiny; procento objemu odpovídá jen nádrži s konstantním průřezem. Změna kalibrace platí pro další nové zprávy; historii nepřepočítává. Vymazání obou polí kalibraci vypne. Pro alarm výpadku zapněte hlídání senzoru hladiny a případně vyberte jeho zdroj v pokročilém nastavení.
 
 ## Přenos a chybové stavy
+
+Po výpadku napájení ESP32 načte uložené párování a Wi-Fi z NVS. Pokud router ještě není dostupný, každých 30 sekund obnoví pokus o připojení bez mazání nastavení. Po návratu Wi-Fi obnoví mDNS pro adresy `.local` a připraví aktuální vzorek k odeslání. V Serial Monitoru jsou tyto přechody označené `[WiFi]`. Změna vyžaduje nahrání aktualizovaného ESP32 firmwaru bez mazání NVS.
+
+Při ověření obnovy vypněte stanici i router, zapněte stanici jako první a router až po několika minutách. Data se mají obnovit automaticky. Totéž ověřte při výpadku samotného routeru a při pozdějším spuštění serveru. U serveru zadaného IP adresou zajistěte v routeru rezervaci DHCP, aby po výpadku nezískal jinou adresu. Tyto scénáře je potřeba ověřit na skutečném zařízení.
 
 UART 9600 baud, 8N1, rámec `$COV1,sekvence,teplota_setiny_C,vzdalenost_mm*CRC\n`. CRC je CRC-16/CCITT-FALSE (polynom 0x1021, počáteční 0xFFFF) přes text od `COV1` do znaku před `*`, čtyři hexadecimální číslice. Chyba teploty má hodnotu -32768, chyba vzdálenosti -1. Nano posílá přibližně každé dvě sekundy. Hodnotu DS18B20 85 °C tato varianta konzervativně považuje za neplatnou kvůli startovnímu registru; není určená k měření vody o této teplotě.
 

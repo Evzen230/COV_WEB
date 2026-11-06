@@ -8,14 +8,26 @@
 #include <Preferences.h>
 
 // Change for each release. Use the same target in the signed release manifest.
-#define FIRMWARE_VERSION "0.3.0"
+#define FIRMWARE_VERSION "0.3.1"
 #define HARDWARE_TARGET "esp32-nano-v1"
 // Defer Arduino's startup confirmation until sensor and server checks pass.
 extern "C" bool verifyRollbackLater(void) { return true; }
-// HTTPS reverse proxy on the Raspberry Pi; include the issuing CA below.
-// OTA stays disabled until both values are configured. Never use setInsecure().
-const char* OTA_BASE_URL = ""; // e.g. https://cov.example.cz
-const char* OTA_CA_CERT = ""; // PEM CA certificate; configure NTP in setup for TLS validation.
+// HTTPS reverse proxy on this Raspberry Pi. Replace URL and CA for another site.
+// Always verify the certificate; never use setInsecure().
+const char* OTA_BASE_URL = "https://covmalina.local";
+// Public root CA from this Raspberry Pi. NTP must be synchronized for TLS.
+const char* OTA_CA_CERT = R"COV_CA(-----BEGIN CERTIFICATE-----
+MIIBojCCAUmgAwIBAgIQYcrPkR4Ntx1m3J2grh/2YDAKBggqhkjOPQQDAjAwMS4w
+LAYDVQQDEyVDYWRkeSBMb2NhbCBBdXRob3JpdHkgLSAyMDI2IEVDQyBSb290MB4X
+DTI2MTEwNjA5NDcwMloXDTM2MDkxNDA5NDcwMlowMDEuMCwGA1UEAxMlQ2FkZHkg
+TG9jYWwgQXV0aG9yaXR5IC0gMjAyNiBFQ0MgUm9vdDBZMBMGByqGSM49AgEGCCqG
+SM49AwEHA0IABA1yprP/6KvgGGzi9DlveL5/9dMlKcDGOS3TXaXWH3JBCPJIoS4P
+3DueSig9GODuQ8Ml/jssPZJJ1SBkioAY9xOjRTBDMA4GA1UdDwEB/wQEAwIBBjAS
+BgNVHRMBAf8ECDAGAQH/AgEBMB0GA1UdDgQWBBT3c8XD1KZPkaNcBXdSX+1BWsv+
+2DAKBggqhkjOPQQDAgNHADBEAiBNp19Xycu4FtXAebt+KJzGB7JXDYjt+wwBr1mJ
+70pXmgIgaOK6tddsa/K+3exAsCbqXBOyvLewoIdgt0wICAARqgE=
+-----END CERTIFICATE-----
+)COV_CA";
 unsigned long lastOtaCheck = 0;
 bool firmwareConfirmed = false;
 
@@ -42,11 +54,14 @@ void pollFirmware(const char* apiKey, const char* deviceId) {
   http.setConnectTimeout(5000); http.setTimeout(10000);
   if (!http.begin(client, String(OTA_BASE_URL) + "/api/v1/device/update?device_id=" + String(deviceId))) return;
   http.addHeader("X-API-Key", apiKey);
-  if (http.GET() != 200 || http.getSize() > 4096) { http.end(); return; }
+  int offerStatus = http.GET();
+  Serial.printf("[OTA] Kontrola pres HTTPS: HTTP %d\n", offerStatus);
+  if (offerStatus != 200 || http.getSize() > 4096) { http.end(); return; }
   JsonDocument doc;
   auto error = deserializeJson(doc, http.getString());
   http.end();
-  if (error || doc["firmware"].isNull()) return;
+  if (error) { Serial.println("[OTA] Neplatna odpoved serveru"); return; }
+  if (doc["firmware"].isNull()) { Serial.println("[OTA] HTTPS overeno; zadna nabidka firmware"); return; }
   String version = doc["firmware"]["version"] | "";
   String target = doc["firmware"]["target"] | "";
   String expected = doc["firmware"]["sha256"] | "";

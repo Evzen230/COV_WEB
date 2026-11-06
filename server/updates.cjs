@@ -10,12 +10,27 @@ function newer(a, b) {
   for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
   return false;
 }
-async function download(url, limit = 32 * 1024 * 1024) {
+async function download(url, limit = 32 * 1024 * 1024, fetchBytes = fetch) {
   if (new URL(url).protocol !== "https:")
     throw Error("Aktualizace vyžaduje HTTPS.");
-  const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
-  if (!response.ok || new URL(response.url).protocol !== "https:")
-    throw Error("Stažení aktualizace selhalo.");
+  const response = await fetchBytes(url, {
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!response.ok) {
+    const githubManifest =
+      /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest\/download\/manifest\.json$/.test(
+        url,
+      );
+    const message =
+      response.status === 404 && githubManifest
+        ? "Na GitHubu zatím není dostupné vydání se souborem manifest.json (HTTP 404). Monitoring pokračuje v současné verzi."
+        : `Stažení aktualizace selhalo (HTTP ${response.status}).`;
+    throw Object.assign(Error(message), { httpStatus: response.status });
+  }
+  if (new URL(response.url).protocol !== "https:")
+    throw Error(
+      "Stažení aktualizace bylo přesměrováno na nezabezpečené spojení.",
+    );
   const chunks = [];
   let size = 0;
   for await (const chunk of response.body) {

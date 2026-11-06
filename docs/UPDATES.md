@@ -2,6 +2,18 @@
 
 Web obsahuje Nastavení → Aktualizace a zavíratelné upozornění na dostupnou verzi. Kontrola běží na serveru po startu a každých šest hodin. Selhání internetu neomezuje monitoring. Instalaci spouští přihlášený uživatel; klíč stanice nemá přístup ke správě. Instalace způsobí krátkou přestávku serveru nebo stanice.
 
+## Když už malina a ESP32 fungují, ale kontrola aktualizace selhává
+
+Pokud web ukazuje server i stanici 0.3.0 a „Stažení aktualizace selhalo“, nejdřív ověřte [vydání na GitHubu](https://github.com/Evzen230/COV_WEB/releases). Zdrojové soubory v záložce Code samy aktualizaci netvoří. Malina hledá zveřejněné stabilní vydání s přílohou `manifest.json`.
+
+1. Zachovejte současnou instalaci a zálohované podpisové klíče. Instalátor znovu nespouštějte.
+2. Připravte skutečný binární soubor firmware pro konkrétní stanici. Pro ESP32 s Nanem je cíl `esp32-nano-v1`; použijte aplikační OTA obraz, nikoli sloučený obraz s bootloaderem a tabulkou oddílů.
+3. Před vydáním nastavte a ověřte HTTPS pro OTA. V `examples/esp32_http/ota.h` určují `OTA_BASE_URL` a `OTA_CA_CERT` server a důvěryhodnou certifikační autoritu. Prázdné hodnoty síťové aktualizace vypínají, přestože odesílání měření funguje. Změna těchto hodnot ve zdrojovém souboru vyžaduje sestavení a nahrání firmware do zařízení; již běžící stanice se úpravou souboru nezmění.
+4. Pomocí skriptu `scripts/release.cjs` a původního soukromého klíče vytvořte podepsané vydání. Podrobný příkaz je níže v části Vytvoření vydání. Do příloh GitHub Release patří všechny tři soubory: `manifest.json`, `server.bundle` a `firmware.bin`. Soukromý klíč zůstává jen u vás.
+5. Na webu maliny zvolte Zkontrolovat aktualizace. Vydání 0.3.0 slouží jako výchozí verze a již nainstalovanou 0.3.0 znovu nenainstaluje. Instalaci vyvolá až vydání s vyšší verzí odpovídající skutečnému obsahu.
+
+Při diagnostice na malině lze bezpečně vypsat jen adresu zdroje: `grep '^UPDATE_MANIFEST_URL=' /etc/cov-monitor/server.env`. Nevypisujte soubor s přístupovými údaji. Stav instalační služby zjistíte příkazem `systemctl status cov-monitor-update.timer --no-pager`. Běžící monitoring a jeho automatické spouštění samy o sobě nepotvrzují přítomnost této instalační služby.
+
 ## Raspberry Pi
 
 Použijte Raspberry Pi OS / Debian s systemd, doporučená je 64bitová instalace. Nejdřív nainstalujte Node.js **24.13 nebo novější z řady 24** tak, aby existoval `/usr/bin/node`. Runtime se tímto mechanismem neaktualizuje. Instalátor se spouští z kořene projektu a očekává nové umístění `/opt/cov-monitor/current`.
